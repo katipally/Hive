@@ -42,7 +42,7 @@ export function DisclosuresPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto px-8 py-6">
+    <div className="h-full overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] px-8 py-6">
       <PageHeader
         title="Disclosure audit"
         subtitle="Every time knowledge crossed between members — and what the hive chose to hold back."

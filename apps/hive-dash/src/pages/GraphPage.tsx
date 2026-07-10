@@ -9,6 +9,7 @@ import { NODE_COLORS, NODE_LABEL } from "../lib/palette.js";
 import { cn } from "../lib/cn.js";
 import { panel } from "../lib/motion.js";
 import { Pill } from "../components/ui.js";
+import { ConfirmDialog, useToast } from "@hive/ui";
 
 interface GNode {
   id: string;
@@ -146,19 +147,32 @@ export function GraphPage() {
     fg.cameraPosition({ x: p.x * factor, y: p.y * factor, z: p.z * factor }, undefined, 250);
   };
 
+  const toast = useToast();
+  const [confirm, setConfirm] = useState<{ kind: "entity" | "memory"; id: string; label: string } | null>(null);
+
   async function forgetMemory(memoryId: string) {
-    await api(`/api/memories/${memoryId}`, { method: "DELETE" }).catch(() => {});
-    if (selected) setDetail(await api(`/api/entities/${selected.id}`).catch(() => null));
-    load();
+    try {
+      await api(`/api/memories/${memoryId}`, { method: "DELETE" });
+      if (selected) setDetail(await api(`/api/entities/${selected.id}`).catch(() => null));
+      load();
+      toast("Fact forgotten");
+    } catch {
+      toast("Couldn't forget that fact", "error");
+    }
   }
   async function removeEntity(entityId: string) {
-    await api(`/api/entities/${entityId}`, { method: "DELETE" }).catch(() => {});
-    setSelected(null);
-    load();
+    try {
+      await api(`/api/entities/${entityId}`, { method: "DELETE" });
+      setSelected(null);
+      load();
+      toast("Removed from the graph");
+    } catch {
+      toast("Couldn't remove that node", "error");
+    }
   }
 
   return (
-    <div ref={wrapRef} className="relative h-full">
+    <div ref={wrapRef} className="relative h-full overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)]">
       {/* toolbar */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start gap-3 p-4">
         <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-border bg-popover/80 px-3 py-2 shadow-lg backdrop-blur-md">
@@ -290,7 +304,7 @@ export function GraphPage() {
           width={dims.w}
           height={dims.h}
           graphData={data}
-          backgroundColor="#100e0a"
+          backgroundColor="#1a1a1d"
           showNavInfo={false}
           nodeRelSize={5}
           nodeVal={(n: any) => n.val}
@@ -308,7 +322,7 @@ export function GraphPage() {
             s.textHeight = focus ? 4.4 : 3.4;
             s.fontFace = "Geist Variable, sans-serif";
             // readable chip behind the name so it stays legible over the 3D scene
-            s.backgroundColor = dim ? "rgba(0,0,0,0)" : focus ? "rgba(244,184,60,0.16)" : "rgba(20,17,11,0.66)";
+            s.backgroundColor = dim ? "rgba(0,0,0,0)" : focus ? "rgba(91,157,255,0.18)" : "rgba(16,16,18,0.66)";
             s.padding = dim ? 0 : 1.8;
             s.borderRadius = 2.5;
             (s as any).material.depthWrite = false;
@@ -337,7 +351,7 @@ export function GraphPage() {
           linkColor={(l: any) => {
             const hot = hoverId && (idOf(l.source) === hoverId || idOf(l.target) === hoverId);
             if (l.invalidated) return hot ? "rgba(229,97,90,0.5)" : "rgba(120,90,60,0.25)";
-            return hot ? "rgba(244,184,60,0.7)" : "rgba(200,180,140,0.3)";
+            return hot ? "rgba(91,157,255,0.75)" : "rgba(160,170,190,0.3)";
           }}
           linkWidth={(l: any) => {
             const hot = hoverId && (idOf(l.source) === hoverId || idOf(l.target) === hoverId);
@@ -352,7 +366,7 @@ export function GraphPage() {
             const hot = hoverId && (idOf(l.source) === hoverId || idOf(l.target) === hoverId);
             return hot ? 2.4 : 1.5;
           }}
-          linkDirectionalParticleColor={() => "rgba(244,184,60,0.85)"}
+          linkDirectionalParticleColor={() => "rgba(91,157,255,0.85)"}
           linkDirectionalArrowLength={2.5}
           linkDirectionalArrowRelPos={1}
           linkLabel={(l: any) => `${l.rel}${l.invalidated ? " (past)" : ""}`}
@@ -378,7 +392,7 @@ export function GraphPage() {
             initial="hidden"
             animate="show"
             exit="exit"
-            className="absolute right-0 top-0 z-20 h-full w-[350px] overflow-y-auto border-l border-border bg-surface/95 p-5 backdrop-blur-xl"
+            className="absolute bottom-3 right-3 top-3 z-20 w-[340px] overflow-y-auto rounded-2xl border border-border bg-elevated/95 p-5 shadow-[var(--shadow-pop)] backdrop-blur-xl"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2.5">
@@ -394,7 +408,7 @@ export function GraphPage() {
             </div>
 
             <button
-              onClick={() => removeEntity(selected.id)}
+              onClick={() => setConfirm({ kind: "entity", id: selected.id, label: selected.name })}
               className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-withhold/25 px-3 py-1.5 text-[12px] text-withhold/90 transition hover:bg-withhold/10"
             >
               <Trash2 size={13} /> Remove this from the graph
@@ -439,7 +453,7 @@ export function GraphPage() {
                       <div className="flex items-start justify-between gap-2">
                         <span>{m.text}</span>
                         <button
-                          onClick={() => forgetMemory(m.id)}
+                          onClick={() => setConfirm({ kind: "memory", id: m.id, label: "this fact" })}
                           className="shrink-0 text-faint opacity-0 transition hover:text-withhold group-hover/mem:opacity-100"
                           title="Forget this fact"
                         >
@@ -456,6 +470,22 @@ export function GraphPage() {
           </motion.aside>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        open={!!confirm}
+        onClose={() => setConfirm(null)}
+        onConfirm={() => {
+          if (confirm?.kind === "entity") removeEntity(confirm.id);
+          else if (confirm?.kind === "memory") forgetMemory(confirm.id);
+        }}
+        title={confirm?.kind === "entity" ? "Remove from the graph?" : "Forget this fact?"}
+        description={
+          confirm?.kind === "entity"
+            ? `“${confirm?.label}” and its relations will be deleted from the hive's memory. This can't be undone.`
+            : "The hive will permanently forget this fact. This can't be undone."
+        }
+        confirmLabel={confirm?.kind === "entity" ? "Remove" : "Forget"}
+      />
     </div>
   );
 }

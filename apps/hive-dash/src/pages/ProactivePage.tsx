@@ -42,7 +42,7 @@ const STATUS_TONE: Record<string, "muted" | "honey" | "share" | "partial" | "wit
 const ACTIVITY_COLOR: Record<string, string> = {
   extraction: "#8fb0ff",
   conclusion: "#c68bff",
-  implication: "#f4b83c",
+  implication: "#5b9dff",
   disclosure: "#57c8bf",
   nudge: "#ff7a6b",
   heartbeat_pass: "#74d68a",
@@ -91,8 +91,8 @@ export function ProactivePage() {
   const suppressed = nudges.filter((n) => n.status === "suppressed" || n.status === "dismissed" || n.status === "failed");
 
   return (
-    <div className="grid h-full grid-cols-[1fr_340px] overflow-hidden">
-      <div className="overflow-y-auto px-8 py-6">
+    <div className="flex h-full w-full gap-2 overflow-hidden">
+      <div className="flex-1 overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] px-8 py-6">
         <PageHeader
           title="Proactive"
           subtitle="What the hive is deciding to reach out about — and why."
@@ -201,10 +201,10 @@ export function ProactivePage() {
         )}
       </div>
 
-      {/* activity rail */}
-      <div className="flex flex-col overflow-hidden border-l border-border bg-surface/40">
+      {/* activity rail — its own elevated panel */}
+      <div className="flex w-[340px] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)]">
         <div className="flex items-center gap-2 px-5 py-4 text-[13px] font-medium text-fg">
-          <Activity size={15} className="text-honey" /> Activity
+          <Activity size={15} className="text-accent" /> Activity
         </div>
         <div className="flex-1 space-y-1.5 overflow-y-auto px-4 pb-6">
           {activity.length === 0 && <p className="px-1 text-[12px] text-faint">Quiet for now.</p>}

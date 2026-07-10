@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { UserPlus, Copy, Check, MessageSquare, Send, Hash, Smartphone } from "lucide-react";
+import { UserPlus, Copy, Check, MessageSquare, Send, Hash, Smartphone, Settings2 } from "lucide-react";
 import { api, type MemberRow } from "../api.js";
 import { useDashSocket } from "../useDashSocket.js";
-import { Button, Card, Input, PageHeader, EmptyState } from "../components/ui.js";
+import { Button, Card, Input, PageHeader, EmptyState, Field } from "../components/ui.js";
+import { Dialog, Segmented, useToast } from "@hive/ui";
 import { stagger } from "../lib/motion.js";
 import { cn } from "../lib/cn.js";
+
+interface BeeSettings {
+  persona: string;
+  proactivity: "off" | "low" | "normal" | "high";
+}
 
 const CHANNEL_ICON: Record<string, typeof MessageSquare> = {
   web: MessageSquare,
@@ -18,8 +24,10 @@ export function MembersPage() {
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [name, setName] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  const [configFor, setConfigFor] = useState<MemberRow | null>(null);
+  const toast = useToast();
 
-  const load = () => api<MemberRow[]>("/api/members").then(setMembers).catch(() => {});
+  const load = () => api<MemberRow[]>("/api/members").then(setMembers).catch(() => toast("Couldn't load members", "error"));
   useEffect(() => void load(), []);
   useDashSocket((e) => {
     if (e.type === "member.updated" || e.type === "bee.presence") load();
@@ -27,9 +35,14 @@ export function MembersPage() {
 
   async function addMember() {
     if (!name.trim()) return;
-    await api("/api/members", { method: "POST", body: JSON.stringify({ name: name.trim() }) });
-    setName("");
-    load();
+    try {
+      await api("/api/members", { method: "POST", body: JSON.stringify({ name: name.trim() }) });
+      setName("");
+      load();
+      toast("Member added");
+    } catch {
+      toast("Couldn't add member", "error");
+    }
   }
   function copy(code: string) {
     navigator.clipboard?.writeText(code);
@@ -38,7 +51,7 @@ export function MembersPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto px-8 py-6">
+    <div className="h-full overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] px-8 py-6">
       <PageHeader title="Members" subtitle="Everyone in this hive. Share an invite code to link a member's bee." />
 
       <Card className="mb-5 p-3">
@@ -66,7 +79,7 @@ export function MembersPage() {
                   <div className="flex items-center gap-3">
                     <div
                       className="grid size-9 place-items-center rounded-full text-[14px] font-semibold text-bg"
-                      style={{ background: "linear-gradient(135deg, #f4b83c, #e2701f)" }}
+                      style={{ background: "linear-gradient(135deg, #5b9dff, #e2701f)" }}
                     >
                       {m.name.slice(0, 1).toUpperCase()}
                     </div>
@@ -75,14 +88,24 @@ export function MembersPage() {
                       <div className="text-[11px] text-faint">{m.timezone}</div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => copy(m.code)}
-                    className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 font-mono text-[12px] text-honey transition hover:border-honey/40"
-                    title="Copy invite code"
-                  >
-                    {copied === m.code ? <Check size={13} /> : <Copy size={13} />}
-                    {m.code}
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => copy(m.code)}
+                      className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 font-mono text-[12px] text-honey transition hover:border-honey/40"
+                      title="Copy invite code"
+                    >
+                      {copied === m.code ? <Check size={13} /> : <Copy size={13} />}
+                      {m.code}
+                    </button>
+                    <button
+                      onClick={() => setConfigFor(m)}
+                      className="grid size-8 place-items-center rounded-lg border border-border bg-surface text-muted transition hover:border-border-heavy hover:text-fg"
+                      title="Bee settings"
+                      aria-label={`Settings for ${m.name}'s bee`}
+                    >
+                      <Settings2 size={15} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mt-3.5 flex flex-col gap-1.5">
@@ -126,7 +149,99 @@ export function MembersPage() {
           ))}
         </div>
       )}
+
+      <BeeConfigDialog member={configFor} onClose={() => setConfigFor(null)} onSaved={load} />
     </div>
+  );
+}
+
+const PROACTIVITY = [
+  { v: "off", l: "Off" },
+  { v: "low", l: "Low" },
+  { v: "normal", l: "Normal" },
+  { v: "high", l: "High" },
+] as const;
+
+// Per-bee persona / behaviour: tone, proactivity, quiet hours, timezone.
+function BeeConfigDialog({ member, onClose, onSaved }: { member: MemberRow | null; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [persona, setPersona] = useState("");
+  const [proactivity, setProactivity] = useState<BeeSettings["proactivity"]>("normal");
+  const [quietStart, setQuietStart] = useState("");
+  const [quietEnd, setQuietEnd] = useState("");
+  const [timezone, setTimezone] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!member) return;
+    setQuietStart(member.quietHoursStart ?? "");
+    setQuietEnd(member.quietHoursEnd ?? "");
+    setTimezone(member.timezone);
+    api<BeeSettings>(`/api/members/${member.id}/bee-settings`)
+      .then((s) => { setPersona(s.persona); setProactivity(s.proactivity); })
+      .catch(() => {});
+  }, [member]);
+
+  async function save() {
+    if (!member) return;
+    setSaving(true);
+    try {
+      await Promise.all([
+        api(`/api/members/${member.id}/bee-settings`, { method: "PUT", body: JSON.stringify({ persona, proactivity }) }),
+        api(`/api/members/${member.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ timezone, quietHoursStart: quietStart || null, quietHoursEnd: quietEnd || null }),
+        }),
+      ]);
+      toast("Bee settings saved");
+      onSaved();
+      onClose();
+    } catch {
+      toast("Couldn't save settings", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={!!member} onClose={onClose} title={member ? `${member.name}'s bee` : ""} description="Shape how this member's bee behaves." className="max-w-lg">
+      <div className="flex flex-col gap-4">
+        <Field label="Persona & tone">
+          <textarea
+            value={persona}
+            onChange={(e) => setPersona(e.target.value)}
+            rows={3}
+            placeholder="e.g. Playful and a little sarcastic. Keep it brief. Never nag."
+            className="w-full resize-none rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-fg outline-none placeholder:text-faint focus:border-accent/50"
+          />
+        </Field>
+
+        <Field label="Proactivity">
+          <Segmented
+            value={proactivity}
+            onChange={setProactivity}
+            options={PROACTIVITY.map((o) => ({ value: o.v, label: o.l }))}
+          />
+        </Field>
+
+        <div className="flex flex-wrap gap-4">
+          <Field label="Quiet hours from">
+            <Input type="time" value={quietStart} onChange={(e) => setQuietStart(e.target.value)} className="w-32" />
+          </Field>
+          <Field label="Quiet hours to">
+            <Input type="time" value={quietEnd} onChange={(e) => setQuietEnd(e.target.value)} className="w-32" />
+          </Field>
+          <Field label="Timezone">
+            <Input value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="UTC" className="w-40" />
+          </Field>
+        </div>
+
+        <div className="mt-1 flex justify-end gap-2">
+          <Button variant="subtle" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 

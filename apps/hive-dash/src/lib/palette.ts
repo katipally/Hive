@@ -1,6 +1,6 @@
 // Shared color maps used by the graph and the badges. Keep in sync with styles.css @theme.
 export const NODE_COLORS: Record<string, string> = {
-  person: "#f4b83c",
+  person: "#5b9dff",
   place: "#57c8bf",
   org: "#c68bff",
   event: "#ff7a6b",

@@ -22,10 +22,12 @@ import {
   resolveRole,
   getPrivacyPref,
   setPrivacyPref,
+  getBeeSettings,
+  setBeeSettings,
 } from "../settings/settings.js";
 import { PROVIDERS, PROVIDER_IDS, listModels, streamByFamily } from "@hive/shared/llm";
 import { isMock, mockComplete } from "../llm/mock.js";
-import type { Message, ProviderId, ThinkingLevel } from "@hive/shared/llm";
+import type { Message, ProviderId, ThinkingLevel, ToolSpec } from "@hive/shared/llm";
 import type { ModelRole } from "@hive/shared";
 import { readGraph, inspectEntity } from "../graph/read.js";
 import { deleteMemory, deleteEntity, forgetLastMemory } from "../graph/write.js";
@@ -156,6 +158,7 @@ export function buildApi(version: string): Hono {
       system?: string;
       messages: Message[];
       thinkingLevel?: ThinkingLevel;
+      tools?: ToolSpec[];
     }>();
     if (isMock()) {
       return streamSSE(c, async (stream) => {
@@ -178,6 +181,7 @@ export function buildApi(version: string): Hono {
           model: resolved.model,
           system: body.system,
           messages: body.messages,
+          tools: body.tools,
           thinkingLevel: body.thinkingLevel ?? resolved.thinkingLevel,
         })) {
           await stream.writeSSE({ data: JSON.stringify(ev) });
@@ -233,6 +237,14 @@ export function buildApi(version: string): Hono {
     const { text } = await c.req.json<{ text: string }>();
     setPrivacyPref(c.req.param("id"), text ?? "");
     return c.json({ ok: true });
+  });
+
+  // ---- per-member bee settings (persona + proactivity) ----
+  app.get("/api/members/:id/bee-settings", (c) => c.json(getBeeSettings(c.req.param("id"))));
+  app.put("/api/members/:id/bee-settings", async (c) => {
+    const patch = await c.req.json<Partial<{ persona: string; proactivity: string }>>();
+    setBeeSettings(c.req.param("id"), patch as never);
+    return c.json(getBeeSettings(c.req.param("id")));
   });
 
   // ---- onboarding status ----

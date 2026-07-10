@@ -1,7 +1,7 @@
 import { id } from "@hive/shared";
 import type { Member, Nudge, NudgeKind } from "@hive/shared";
 import { getMember, listIdentities, getIdentity } from "../db/repo.js";
-import { getProactive } from "../settings/settings.js";
+import { getProactive, getBeeSettings } from "../settings/settings.js";
 import { callRole } from "../llm/call.js";
 import { COMPOSE_SYSTEM, composeUser } from "../prompts/proactive.js";
 import { decideDisclosure } from "../disclosure/agent.js";
@@ -35,9 +35,17 @@ export async function proposeCandidate(cand: Candidate): Promise<void> {
   const suppress = (reason: string, draft: string | null = null) =>
     insertNudge(mkNudge(cand, dedupKey, "suppressed", draft, reason));
 
+  // per-member proactivity: off mutes entirely; low/high scale the cooldown window
+  const proactivity = getBeeSettings(cand.recipientMemberId).proactivity;
+  if (proactivity === "off") {
+    suppress("muted by member");
+    return;
+  }
+  const proactivityFactor = proactivity === "low" ? 2 : proactivity === "high" ? 0.4 : 1;
+
   // cooldown — stretched when this member has been rating nudges unhelpful lately
   const negRatio = negativeFeedbackRatio(cand.recipientMemberId, 14 * DAY);
-  const cooldownMs = p.cooldownHours * 3_600_000 * (1 + 3 * negRatio); // up to 4x if all recent were unhelpful
+  const cooldownMs = p.cooldownHours * 3_600_000 * (1 + 3 * negRatio) * proactivityFactor; // up to 4x if unhelpful; ×member proactivity
   const last = lastSentAt(cand.recipientMemberId);
   if (last && Date.now() - last < cooldownMs) {
     suppress(negRatio > 0.5 ? "cooldown (learning: fewer nudges)" : "cooldown");

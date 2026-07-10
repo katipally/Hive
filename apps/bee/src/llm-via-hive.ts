@@ -1,5 +1,5 @@
 import type { ModelRole } from "@hive/shared";
-import type { Message, StreamEvent, ThinkingLevel } from "@hive/shared/llm";
+import type { Message, StreamEvent, StreamFn, ThinkingLevel, ToolSpec } from "@hive/shared/llm";
 
 // Stream a completion through the hive LLM proxy. Bees never hold API keys;
 // hive resolves role -> provider/model/key and streams SSE back.
@@ -9,6 +9,7 @@ export async function* chatViaHive(opts: {
   role: ModelRole;
   system?: string;
   messages: Message[];
+  tools?: ToolSpec[];
   thinkingLevel?: ThinkingLevel;
   signal?: AbortSignal;
 }): AsyncGenerator<StreamEvent> {
@@ -19,6 +20,7 @@ export async function* chatViaHive(opts: {
       role: opts.role,
       system: opts.system,
       messages: opts.messages,
+      tools: opts.tools,
       thinkingLevel: opts.thinkingLevel,
     }),
     signal: opts.signal,
@@ -47,4 +49,21 @@ export async function* chatViaHive(opts: {
       }
     }
   }
+}
+
+// Adapt the hive proxy to the generic StreamFn the agent loop expects. hive
+// resolves provider/model/key from the role, so baseUrl/apiKey/model on the
+// request are ignored — only system/messages/tools/thinkingLevel matter.
+export function hiveStreamFn(opts: { hiveHttpUrl: string; beeToken: string; role: ModelRole }): StreamFn {
+  return (req) =>
+    chatViaHive({
+      hiveHttpUrl: opts.hiveHttpUrl,
+      beeToken: opts.beeToken,
+      role: opts.role,
+      system: req.system,
+      messages: req.messages,
+      tools: req.tools,
+      thinkingLevel: req.thinkingLevel,
+      signal: req.signal,
+    });
 }

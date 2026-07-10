@@ -1,0 +1,242 @@
+@import "tailwindcss";
+
+/* ── Hive design system — palette taken from takt ─────────────────────────────
+   takt's tokens verbatim: calm blue `--accent` for actions, warm `--arc` orange
+   for "working" states, warm-paper light + true near-black dark. No honey.
+   One set of token names, values swap by theme. Dark is the hero and lives in
+   :root (first paint is dark, no flash); `:root.light` = warm paper. Legacy Hive
+   names (bg/fg/honey/…) are aliased to takt values so every existing utility keeps
+   working while resolving to the new palette. */
+@theme inline {
+  /* takt-native names */
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-elevated: var(--elevated);
+  --color-popover: var(--popover);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint: var(--faint);
+  --color-border: var(--border);
+  --color-border-heavy: var(--border-heavy);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-arc: var(--arc);
+  --color-arc-soft: var(--arc-soft);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+
+  /* legacy Hive aliases → takt values (zero component churn) */
+  --color-bg: var(--background);
+  --color-fg: var(--foreground);
+  --color-muted: var(--muted-foreground);
+  --color-honey: var(--accent);
+  --color-honey-soft: var(--accent-soft);
+  --color-ember: var(--arc);
+}
+
+/* Constant across themes: semantic disclosure + graph-node colors (the 3D graph
+   always renders on a dark canvas, so its palette must not follow the theme). */
+@theme {
+  --color-share: #46c07a;
+  --color-partial: #e3ac3e;
+  --color-withhold: #e5615a;
+
+  --color-person: #5b9dff;
+  --color-place: #57c8bf;
+  --color-org: #c68bff;
+  --color-event: #ff7a6b;
+  --color-thing: #8fb0ff;
+  --color-topic: #74d68a;
+
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Dark — hero (default, no FOUC). takt .dark values. */
+:root {
+  color-scheme: dark;
+  --background: #0b0b0c;
+  --surface: #141416;
+  --card: #1a1a1d;
+  --elevated: #202024;
+  --popover: #202024;
+
+  --foreground: #fafafa;
+  --muted-foreground: #a1a1aa;
+  --faint: rgba(255, 255, 255, 0.45);
+
+  --border: rgba(255, 255, 255, 0.08);
+  --border-heavy: rgba(255, 255, 255, 0.14);
+
+  --accent: #5b9dff;
+  --accent-soft: rgba(91, 157, 255, 0.14);
+  --arc: #ff8a3d;
+  --arc-soft: rgba(255, 138, 61, 0.16);
+  --destructive: #fa423e;
+  --success: #40c977;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 10px 34px -12px rgba(0, 0, 0, 0.7);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.14);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
+  --skeleton-base: rgba(255, 255, 255, 0.04);
+  --skeleton-hi: rgba(255, 255, 255, 0.09);
+
+  --grain-opacity: 0.04;
+  --grain-blend: overlay;
+}
+
+/* Light — "warm paper": warmer + softer than a flat white for eye comfort,
+   with stronger borders and darker secondary text for readability. */
+:root.light {
+  color-scheme: light;
+  --background: #f1ede4;
+  --surface: #e7e1d5;
+  --card: #fdfbf6;
+  --elevated: #ffffff;
+  --popover: #ffffff;
+
+  --foreground: #211e18;
+  --muted-foreground: #5a554b;
+  --faint: #8a8377;
+
+  --border: rgba(33, 30, 24, 0.12);
+  --border-heavy: rgba(33, 30, 24, 0.20);
+
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.12);
+  --arc: #c85a12;
+  --arc-soft: rgba(200, 90, 18, 0.14);
+  --destructive: #c92a2a;
+  --success: #157a3e;
+
+  --shadow-card: 0 1px 2px rgba(60, 50, 30, 0.05), 0 10px 26px -14px rgba(60, 50, 30, 0.20);
+  --shadow-pop: 0 10px 30px -12px rgba(60, 50, 30, 0.28);
+  --scrollbar-thumb: rgba(33, 30, 24, 0.20);
+  --scrollbar-thumb-hover: rgba(33, 30, 24, 0.32);
+  --skeleton-base: rgba(33, 30, 24, 0.06);
+  --skeleton-hi: rgba(33, 30, 24, 0.12);
+
+  --grain-opacity: 0.02;
+  --grain-blend: multiply;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv01", "cv03", "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Film grain — the takt "paper" tell. A faint turbulence tile, no colored glow. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: var(--grain-opacity);
+  mix-blend-mode: var(--grain-blend);
+}
+
+/* Keyboard focus on interactive CONTROLS only — text fields manage their own. */
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+summary:focus-visible,
+[role="tab"]:focus-visible,
+[role="option"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(70, 192, 122, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(70, 192, 122, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(70, 192, 122, 0); }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes arc-sweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.32s var(--ease-out-quart) both;
+}
+
+/* streaming/thinking text shimmer — arc orange sweeping through (takt's nod). */
+.honey-shimmer {
+  background: linear-gradient(90deg, var(--muted-foreground) 0%, var(--arc) 50%, var(--muted-foreground) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: arc-sweep 1.8s linear infinite;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--skeleton-base) 25%, var(--skeleton-hi) 37%, var(--skeleton-base) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -2,11 +2,14 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { WebSocketServer, type WebSocket } from "ws";
+import { randomBytes } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
+import { id } from "@hive/shared";
 import type { ChannelAdapter, InboundMessage, ReplySink } from "./types.js";
-import type { Bee } from "../bee.js";
-import type { BeeConfig } from "../config.js";
+import { Bee } from "../bee.js";
+import { saveConfig, type BeeConfig, type BeeInstanceConfig } from "../config.js";
+import { sessionTurns } from "../sessions.js";
 
 // Web channel: bee-ui connects over WS. externalId = a client-persisted uid.
 export class WebChannel implements ChannelAdapter {
@@ -65,11 +68,43 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
     bee.registerAdapter(wc);
   }
 
+  // Spin up a brand-new bee at runtime: mint id+token, persist to config, wire
+  // its web channel, and start it. It appears in /api/bees immediately.
+  function addBee(name: string): { beeId: string; name: string } {
+    const inst: BeeInstanceConfig = {
+      beeId: id("bee"),
+      beeToken: randomBytes(16).toString("hex"),
+      name,
+      channels: { web: { enabled: true } },
+    };
+    cfg.instances.push(inst);
+    saveConfig(cfg);
+    const bee = new Bee(inst, cfg);
+    bees.set(inst.beeId, bee);
+    const wc = new WebChannel();
+    webChannels.set(inst.beeId, wc);
+    bee.registerAdapter(wc);
+    bee.start();
+    return { beeId: inst.beeId, name: inst.name };
+  }
+
   const app = new Hono();
   app.use("*", cors());
   app.get("/api/bees", (c) =>
     c.json([...bees.values()].map((b) => ({ beeId: b.instance.beeId, name: b.instance.name }))),
   );
+  app.post("/api/bees", async (c) => {
+    const { name } = await c.req.json<{ name?: string }>().catch(() => ({ name: undefined }));
+    const nm = name?.trim() || `bee-${bees.size + 1}`;
+    return c.json(addBee(nm));
+  });
+  // Server-backed chat history for the web client (persists across devices).
+  app.get("/api/history", (c) => {
+    const bee = c.req.query("bee") ?? "";
+    const uid = c.req.query("uid") ?? "";
+    if (!bee || !uid) return c.json([]);
+    return c.json(sessionTurns(bee, `web:${uid}`));
+  });
   app.get("/api/health", (c) => c.json({ ok: true }));
 
   const server = serve({ fetch: app.fetch, port: cfg.webPort });

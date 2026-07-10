@@ -1,9 +1,11 @@
 import { id } from "@hive/shared";
 import type { ChannelKind, ContextBlock } from "@hive/shared";
+import { runAgentLoop } from "@hive/shared/agent";
 import { saveConfig, type BeeConfig, type BeeInstanceConfig } from "./config.js";
 import { HiveLink } from "./hive-link.js";
-import { chatViaHive } from "./llm-via-hive.js";
-import { appendSession, loadHistory } from "./sessions.js";
+import { chatViaHive, hiveStreamFn } from "./llm-via-hive.js";
+import { makeBeeTools } from "./agent-tools.js";
+import { appendSession, loadHistoryCompacted } from "./sessions.js";
 import { detectCode, pairingPrompt } from "./pairing.js";
 import type { ChannelAdapter, InboundMessage, ReplySink } from "./channels/types.js";
 import { TelegramChannel } from "./channels/telegram.js";
@@ -167,7 +169,7 @@ export class Bee {
       ts: msg.ts,
     });
 
-    // retrieve context from hive (empty until M6)
+    // seed grounding context from hive (also available on demand via the recall tool)
     let blocks: ContextBlock[] = [];
     try {
       blocks = await this.link.context(linked.memberId, sessionId, msg.text);
@@ -175,17 +177,53 @@ export class Bee {
       /* hive offline — reply without context */
     }
 
-    const history = loadHistory(this.instance.beeId, sessionId);
-    const system = buildSystem(linked.memberName, blocks);
+    // Compact long threads: fold the older prefix into a summary (via hive's social role).
+    const summarize = async (convo: string): Promise<string> => {
+      let out = "";
+      try {
+        for await (const ev of chatViaHive({
+          hiveHttpUrl: this.cfg.hiveHttpUrl,
+          beeToken: this.instance.beeToken,
+          role: "social",
+          system: "Summarize this conversation concisely, preserving names, facts, decisions, and open threads. 2–6 sentences.",
+          messages: [{ role: "user", content: convo }],
+        })) {
+          if (ev.type === "text_delta") out += ev.text;
+        }
+      } catch {
+        /* summarizer unavailable */
+      }
+      return out.trim();
+    };
+
+    // per-member persona/tone (set from the dashboard or the bee's own settings)
+    let persona = "";
+    try {
+      const bs = (await fetch(`${this.cfg.hiveHttpUrl}/api/members/${linked.memberId}/bee-settings`)
+        .then((r) => r.json())
+        .catch(() => null)) as { persona?: string } | null;
+      persona = bs?.persona?.trim() ?? "";
+    } catch {
+      /* hive offline — default persona */
+    }
+
+    const history = await loadHistoryCompacted(this.instance.beeId, sessionId, summarize);
+    const system = buildSystem(linked.memberName, blocks, persona);
+    const tools = makeBeeTools({
+      hiveHttpUrl: this.cfg.hiveHttpUrl,
+      memberId: linked.memberId,
+      recall: (q) => this.link.context(linked.memberId, sessionId, q),
+    });
 
     let full = "";
     try {
-      for await (const ev of chatViaHive({
-        hiveHttpUrl: this.cfg.hiveHttpUrl,
-        beeToken: this.instance.beeToken,
-        role: "chat",
+      for await (const ev of runAgentLoop(history, {
+        streamFn: hiveStreamFn({ hiveHttpUrl: this.cfg.hiveHttpUrl, beeToken: this.instance.beeToken, role: "chat" }),
+        model: "hive-resolved",
+        baseUrl: this.cfg.hiveHttpUrl,
         system,
-        messages: history,
+        tools,
+        maxTurns: 6,
       })) {
         if (ev.type === "text_delta") {
           full += ev.text;
@@ -244,11 +282,18 @@ export class Bee {
   pendingChannelConfig?: (channel: ChannelKind, config: Record<string, unknown>) => void;
 }
 
-function buildSystem(memberName: string, blocks: ContextBlock[]): string {
-  let s = `You are ${memberName}'s personal Hive bee — a warm, concise companion who helps them and remembers what they share. Speak naturally and keep replies short unless asked for more.
+function buildSystem(memberName: string, blocks: ContextBlock[], persona = ""): string {
+  let s = `You are ${memberName}'s personal Hive bee — a warm, concise companion who helps them and remembers what they share. Speak naturally and keep replies short unless asked for more.`;
+  if (persona) s += `\n\nPERSONALITY & TONE (set by ${memberName} — follow it): ${persona}`;
+  s += `
+
+TOOLS — you can act, not just answer:
+- Call \`recall\` to look up facts before answering anything about people, plans, preferences, or the past. Privacy is enforced by the hive, so trust what it returns.
+- Use \`my_memories\` / \`whats_shared_about_me\` when asked what you know about them or what others know.
+- Use \`set_privacy\` when they ask to keep something private.
 
 GROUNDING — this is critical:
-- Only state facts about people, places, events, or preferences that appear in "Hive context" below, or that ${memberName} has told you in this conversation.
+- Only state facts about people, places, events, or preferences that appear in "Hive context" below, that a tool returned, or that ${memberName} has told you in this conversation.
 - If you don't have the information, say so plainly ("I don't have anything about that yet", "I don't know Yash"). NEVER invent names, dates, places, preferences, or any detail. Do not guess or fill gaps with plausible-sounding facts.
 - Admitting you don't know is always better than making something up.`;
   if (blocks.length) {

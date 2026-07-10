@@ -94,6 +94,22 @@ export function roleConfigured(role: ModelRole): boolean {
   return !!getModelRoles()[role];
 }
 
+// Per-member bee settings: persona/tone (fed into the bee's system prompt) and
+// how proactive that member's bee is allowed to be.
+export type Proactivity = "off" | "low" | "normal" | "high";
+export interface BeeSettings {
+  persona: string;
+  proactivity: Proactivity;
+}
+const DEFAULT_BEE_SETTINGS: BeeSettings = { persona: "", proactivity: "normal" };
+
+export function getBeeSettings(memberId: string): BeeSettings {
+  return { ...DEFAULT_BEE_SETTINGS, ...getJson<Partial<BeeSettings>>(`bee:${memberId}`, {}) };
+}
+export function setBeeSettings(memberId: string, patch: Partial<BeeSettings>): void {
+  setJson(`bee:${memberId}`, { ...getBeeSettings(memberId), ...patch });
+}
+
 // Per-member privacy preferences (free text the disclosure agent must honour).
 export function getPrivacyPref(memberId: string): string {
   const row = getDb().db.prepare("SELECT value FROM settings WHERE key=?").get(`privacy:${memberId}`) as
