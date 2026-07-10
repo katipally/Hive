@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tsbuildinfo
+hive-data/
+bee-data/
+.DS_Store
+*.log

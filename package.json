@@ -1,0 +1,20 @@
+{
+  "name": "hive",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.5.2",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "concurrently -n hive,bee,dash,bee-ui -c cyan,yellow,green,magenta \"pnpm -C apps/hive-server dev\" \"pnpm -C apps/bee dev\" \"pnpm -C apps/hive-dash dev\" \"pnpm -C apps/bee-ui dev\"",
+    "dev:server": "concurrently -n hive,bee -c cyan,yellow \"pnpm -C apps/hive-server dev\" \"pnpm -C apps/bee dev\"",
+    "build": "pnpm -C packages/shared build && pnpm -C apps/hive-dash build && pnpm -C apps/bee-ui build && pnpm -C apps/hive-server build && pnpm -C apps/bee build",
+    "typecheck": "pnpm -r typecheck",
+    "seed": "pnpm -C apps/hive-server seed",
+    "smoke": "pnpm -C apps/hive-server smoke"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.2"
+  }
+}
