@@ -28,21 +28,25 @@ export async function runImplications(memberId: string, memoryIds: string[]): Pr
     .filter((r): r is { text: string; salience: number } => !!r);
   if (rows.length === 0) return mark();
 
-  // Cheap no-LLM pre-filter: only spend a social LLM call when something here is
-  // actually salient enough to be worth telling someone. Mundane facts (default
-  // salience ~0.5) never trigger the call, so idle/small-talk chatter costs 0 tokens.
-  // ponytail: salience-only gate; add "new shared-entity overlap" as a second trigger
-  // if genuinely important-but-low-salience facts start getting missed.
+  const others = listMembers().filter((m) => m.id !== memberId);
+  if (others.length === 0) return mark();
+
+  // Cheap no-LLM pre-filter: only spend a social LLM call when something here is worth
+  // telling someone. Salience is the primary gate — but a quietly-stated fact that names
+  // ANOTHER member ("I'm helping Bob with the party") is exactly a cross-member signal
+  // even at low salience, so that's a second trigger (PROA-14): important-but-low-salience
+  // facts that reference the group are no longer buried forever.
   const SALIENCE_MIN = Number(process.env["HIVE_SALIENCE_MIN"] ?? 0.6);
-  if (Math.max(...rows.map((r) => r.salience)) < SALIENCE_MIN) {
+  const salientEnough = Math.max(...rows.map((r) => r.salience)) >= SALIENCE_MIN;
+  const namesAnotherMember = rows.some((r) =>
+    others.some((o) => new RegExp(`\\b${escapeRegex(o.name)}\\b`, "i").test(r.text)),
+  );
+  if (!salientEnough && !namesAnotherMember) {
     logActivity("implication", memberId, { summary: "skipped (nothing salient enough to share)", count: 0 });
     return mark();
   }
 
   const facts = rows.map((r) => r.text);
-
-  const others = listMembers().filter((m) => m.id !== memberId);
-  if (others.length === 0) return mark();
 
   const out = await callRoleJson<ImplicationsOut>("social", {
     system: IMPLICATIONS_SYSTEM,
@@ -69,4 +73,8 @@ export async function runImplications(memberId: string, memoryIds: string[]): Pr
     });
   }
   mark(); // processed — don't re-sweep these on next boot
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

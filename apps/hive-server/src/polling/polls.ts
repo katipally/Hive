@@ -180,24 +180,31 @@ export async function synthesizePoll(pollId: string): Promise<void> {
     pollId,
   });
 
-  // deliver the synthesis back to whoever asked (if it was a member-initiated poll)
-  if (poll.initiatorMemberId) {
-    const initiator = getMember(poll.initiatorMemberId);
-    const identity = initiator ? pickIdentity(initiator) : null;
-    if (identity) {
-      pushToBee(
-        {
-          type: "nudge.deliver",
-          nudgeId: `psyn_${pollId}`,
-          memberId: poll.initiatorMemberId,
-          channelIdentityId: identity.id,
-          channel: identity.channel,
-          externalId: identity.externalId,
-          text: `Here's what I gathered on ${poll.topic}:\n\n${synthesis}`,
-        },
-        identity.beeId,
-      );
-    }
+  // Deliver the synthesis. A member-initiated poll goes back to whoever asked; an
+  // AUTONOMOUS group poll (no initiator) goes to everyone who was polled — otherwise the
+  // hive spends the synthesis call and the answer reaches nobody (PROA-13). The synthesis
+  // is anonymized aggregate text, so broadcasting it to participants is privacy-safe.
+  const recipientIds = poll.initiatorMemberId
+    ? [poll.initiatorMemberId]
+    : [...new Set(asksForPoll(pollId).map((a) => a.memberId))];
+  for (const rid of recipientIds) {
+    const member = getMember(rid);
+    const identity = member ? pickIdentity(member) : null;
+    if (!identity) continue;
+    pushToBee(
+      {
+        type: "nudge.deliver",
+        nudgeId: `psyn_${pollId}_${rid}`,
+        memberId: rid,
+        channelIdentityId: identity.id,
+        channel: identity.channel,
+        externalId: identity.externalId,
+        text: poll.initiatorMemberId
+          ? `Here's what I gathered on ${poll.topic}:\n\n${synthesis}`
+          : `The group weighed in on ${poll.topic} — here's the gist:\n\n${synthesis}`,
+      },
+      identity.beeId,
+    );
   }
 }
 

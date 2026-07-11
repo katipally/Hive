@@ -113,10 +113,12 @@ export async function runHeartbeatTick(): Promise<void> {
     }
 
     // weekly "here's your week" digest — self-addressed nudge, gated to once per 7 days.
+    // Stamp the week as done ONLY after a confirmed compose+propose (PROA-12): if there's
+    // nothing to say or compose fails, we retry next tick instead of skipping 7 days.
     const digestKey = `proactive:lastDigest:${member.id}`;
     if (Date.now() - (getKVNum(digestKey) ?? 0) > WEEK_MS) {
-      setKVNum(digestKey, Date.now());
-      await sendDigest(member.id).catch(() => {});
+      const sent = await sendDigest(member.id).catch(() => false);
+      if (sent) setKVNum(digestKey, Date.now());
     }
     touchHeartbeat(member.id);
   }

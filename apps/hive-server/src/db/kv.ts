@@ -17,6 +17,10 @@ export function setKV(key: string, value: string): void {
     .run(key, value, Date.now());
 }
 
+export function delKV(key: string): void {
+  getDb().db.prepare("DELETE FROM kv WHERE key=?").run(key);
+}
+
 export function getKVNum(key: string): number | null {
   const v = getKV(key);
   return v == null ? null : Number(v);

@@ -9,6 +9,7 @@ import { insertNudge, setNudgeStatus, getNudge, recentSentNudges, lastSentAt, ne
 import { deliverNudge as pushToBee, onNudgeResult } from "../ws/bee-hub.js";
 import { logActivity } from "../activity.js";
 import { getDb } from "../db/db.js";
+import { getKVNum, setKVNum, delKV } from "../db/kv.js";
 
 export interface Candidate {
   recipientMemberId: string;
@@ -18,6 +19,7 @@ export interface Candidate {
   topic: string;
   sourceMemoryIds: string[];
   draft?: string; // pre-composed message (e.g. weekly digest); skips the compose step
+  exemptCooldown?: boolean; // self-addressed digest: still deduped, but not cooldown-suppressed
 }
 
 const DAY = 86_400_000;
@@ -35,6 +37,11 @@ onNudgeResult((nudgeId, status, error) => {
 // so the operator can pull it back. Timers are in-memory (best-effort per session).
 const pendingUndo = new Map<string, NodeJS.Timeout>();
 
+// KV key for a nudge's earliest-deliver time — persisted so the undo window survives a
+// restart. The in-memory timer alone (below) is lost on restart, and deliverQueued would
+// then deliver immediately, silently defeating undo (PROA-15).
+const undoKey = (nudgeId: string): string => `nudge:deliverAfter:${nudgeId}`;
+
 // Send now, or hold for the configured undo window then send.
 export function scheduleDelivery(nudgeId: string): void {
   const windowMs = getProactive().undoWindowSec * 1000;
@@ -42,6 +49,7 @@ export function scheduleDelivery(nudgeId: string): void {
     void deliverNudgeById(nudgeId);
     return;
   }
+  setKVNum(undoKey(nudgeId), Date.now() + windowMs); // durable earliest-deliver time
   const t = setTimeout(() => {
     pendingUndo.delete(nudgeId);
     void deliverNudgeById(nudgeId);
@@ -56,6 +64,7 @@ export function undoNudge(nudgeId: string): boolean {
   if (!t) return false;
   clearTimeout(t);
   pendingUndo.delete(nudgeId);
+  delKV(undoKey(nudgeId));
   setNudgeStatus(nudgeId, "dismissed", { suppressReason: "recalled by operator" });
   return true;
 }
@@ -77,13 +86,17 @@ export async function proposeCandidate(cand: Candidate): Promise<void> {
   }
   const proactivityFactor = proactivity === "low" ? 2 : proactivity === "high" ? 0.4 : 1;
 
-  // cooldown — stretched when this member has been rating nudges unhelpful lately
-  const negRatio = negativeFeedbackRatio(cand.recipientMemberId, 14 * DAY);
-  const cooldownMs = p.cooldownHours * 3_600_000 * (1 + 3 * negRatio) * proactivityFactor; // up to 4x if unhelpful; ×member proactivity
-  const last = lastSentAt(cand.recipientMemberId);
-  if (last && Date.now() - last < cooldownMs) {
-    suppress(negRatio > 0.5 ? "cooldown (learning: fewer nudges)" : "cooldown");
-    return;
+  // cooldown — stretched when this member has been rating nudges unhelpful lately.
+  // The weekly digest is exempt (PROA-12): it's self-addressed and already gated to once
+  // per 7 days by its topic dedup, so the per-member nudge cooldown shouldn't eat it.
+  if (!cand.exemptCooldown) {
+    const negRatio = negativeFeedbackRatio(cand.recipientMemberId, 14 * DAY);
+    const cooldownMs = p.cooldownHours * 3_600_000 * (1 + 3 * negRatio) * proactivityFactor; // up to 4x if unhelpful; ×member proactivity
+    const last = lastSentAt(cand.recipientMemberId);
+    if (last && Date.now() - last < cooldownMs) {
+      suppress(negRatio > 0.5 ? "cooldown (learning: fewer nudges)" : "cooldown");
+      return;
+    }
   }
   // dedup (same topic sent in last 7d)
   if (recentSentNudges(cand.recipientMemberId, 7 * DAY).some((n) => n.dedupKey === dedupKey)) {
@@ -163,6 +176,7 @@ function mkNudge(
 
 export async function deliverNudgeById(nudgeId: string): Promise<void> {
   pendingUndo.delete(nudgeId); // it's going out now
+  delKV(undoKey(nudgeId)); // window is over
   const nudge = getNudge(nudgeId);
   if (!nudge || !nudge.draft) return;
   const member = getMember(nudge.memberId);
@@ -204,8 +218,14 @@ export async function deliverNudgeById(nudgeId: string): Promise<void> {
 // Deliver any queued nudges now outside quiet hours (called by heartbeat).
 export function deliverQueued(): void {
   const { db } = getDb();
+  const now = Date.now();
   const rows = db.prepare("SELECT id FROM nudges WHERE status='queued'").all() as { id: string }[];
-  for (const r of rows) if (!pendingUndo.has(r.id)) void deliverNudgeById(r.id); // don't jump the undo window
+  for (const r of rows) {
+    if (pendingUndo.has(r.id)) continue; // an in-session undo timer owns it
+    const after = getKVNum(undoKey(r.id));
+    if (after && after > now) continue; // still inside its undo window (survives restart, PROA-15)
+    void deliverNudgeById(r.id);
+  }
 }
 
 export function inQuietHours(member: Member): boolean {

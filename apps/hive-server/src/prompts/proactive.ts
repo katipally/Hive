@@ -59,7 +59,7 @@ Look across everyone and find opportunities a caring mutual friend would act on:
 
 Be genuinely selective. Most reviews should surface little or nothing — a great connection is rare and welcome, noise is not. Only propose things that are specific and grounded in the briefs below. Never invent facts.
 
-For each opportunity, pick ONE recipient to nudge and (if it references someone else) name that other member so their privacy can be checked.
+For each opportunity, pick ONE recipient to nudge and (if it references someone else) name that other member so their privacy can be checked. For an introduction/connection between two people, phrase "reason" SYMMETRICALLY — name both people and the thing they share ("Alice and Bob are both planning a Japan trip this autumn") rather than from one person's side — because the hive reaches out to BOTH of them and the same reason is used each way.
 
 Separately, you MAY (rarely) decide the group has a question worth gathering opinions on — something one member would love the group's honest take on (e.g. planning a surprise, picking a gift, settling a debate). If so, add a poll: the hive will ask each friend privately and anonymously, then synthesize. At most ONE poll per review, and only when it clearly serves someone.
 

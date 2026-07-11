@@ -75,12 +75,14 @@ export function asksForPoll(pollId: string): PollAsk[] {
   return (getDb().db.prepare("SELECT * FROM poll_asks WHERE poll_id=? ORDER BY delivered_at").all(pollId) as Record<string, unknown>[]).map(rowToAsk);
 }
 
-// The oldest still-open ask for a member (delivered, not yet answered) — used to
-// correlate the member's next reply back to a poll on ingest.
+// The MOST-RECENT still-open ask for a member (delivered, not yet answered) — used to
+// correlate the member's next reply back to a poll on ingest. Most-recent (not oldest)
+// so that if two polls overlap, a reply is filed against the question they were most
+// recently asked, not an older stale one (PROA-9).
 export function openAskForMember(memberId: string): PollAsk | null {
   const r = getDb()
     .db.prepare(
-      "SELECT * FROM poll_asks WHERE member_id=? AND delivered_at IS NOT NULL AND answered_at IS NULL ORDER BY delivered_at LIMIT 1",
+      "SELECT * FROM poll_asks WHERE member_id=? AND delivered_at IS NOT NULL AND answered_at IS NULL ORDER BY delivered_at DESC LIMIT 1",
     )
     .get(memberId) as Record<string, unknown> | undefined;
   return r ? rowToAsk(r) : null;

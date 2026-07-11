@@ -40,6 +40,7 @@ export async function sendDigest(memberId: string): Promise<boolean> {
     topic: "digest",
     sourceMemoryIds: [],
     draft,
+    exemptCooldown: true, // don't let the per-member nudge cooldown swallow the weekly digest
   });
   return true;
 }
