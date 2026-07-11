@@ -62,6 +62,7 @@ export function GraphPage() {
   const [dims, setDims] = useState({ w: 0, h: 0 });
   const refetch = useRef<number | null>(null);
   const fitDone = useRef(false);
+  const coldRetries = useRef(0);
 
   const load = useCallback(() => {
     const q = new URLSearchParams();
@@ -70,7 +71,21 @@ export function GraphPage() {
     api<Graph>(`/api/graph?${q}`).then((g) => {
       fitDone.current = false;
       setGraph(g);
-    }).catch(() => {});
+      // Cold-start resilience: a just-woken server (e.g. free-tier spin-up) can still be
+      // seeding when the page first mounts. If the unfiltered graph comes back empty,
+      // retry a few times so we don't get stuck on "the hive is still learning".
+      if (!member && (g.nodes?.length ?? 0) === 0 && coldRetries.current < 6) {
+        coldRetries.current++;
+        window.setTimeout(load, 1500);
+      } else {
+        coldRetries.current = 0;
+      }
+    }).catch(() => {
+      if (coldRetries.current < 6) {
+        coldRetries.current++;
+        window.setTimeout(load, 1500);
+      }
+    });
   }, [member, showInvalidated]);
 
   useEffect(() => {
