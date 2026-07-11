@@ -105,6 +105,8 @@ it writes down its reasoning every single time, which is what fills the Disclosu
 - **Contextual-integrity disclosure.** The share-or-withhold judgment above, fully audited.
 - **Proactive reach-outs.** A heartbeat looks for introductions worth making and things you would want to know, with cooldowns and quiet hours so it does not get annoying.
 - **Ask your network.** Post an anonymous question to the group and get a synthesized answer back.
+- **Real-world errands + web lookup.** The bee can search the web (no API key needed — keyless by default, Exa if you add a key) and go find things you mention wanting.
+- **Reminders.** Ask to be reminded of something later and the bee will message you when it's due.
 - **Reach people anywhere.** Web chat always works. Telegram and Discord plug in too.
 - **Any model.** Anthropic, MiniMax, OpenAI-style endpoints, or local Ollama. Three jobs (chat, extraction, social) can each run on a different one.
 - **Keys stay safe.** Provider keys are encrypted on disk, and bees never hold them.

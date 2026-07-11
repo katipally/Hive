@@ -15,7 +15,6 @@ const CHANNELS = [
     id: "telegram",
     label: "Telegram",
     Icon: Send,
-    kind: "token" as const,
     hint: "Bot token from @BotFather (looks like 123456:ABC-DEF…)",
     connect: "Members open this Telegram bot and send their invite code (BEE-XXXX).",
     steps: [
@@ -29,7 +28,6 @@ const CHANNELS = [
     id: "discord",
     label: "Discord",
     Icon: Hash,
-    kind: "token" as const,
     hint: "Bot token — Message Content Intent must be ON",
     connect: "Invite each member to your private server, then they DM the bot their invite code (BEE-XXXX).",
     note: "Discord only lets a bot DM someone who shares a server with it — so you make one private server, invite the bot AND your members to it, and the actual chatting still happens in DMs.",
@@ -206,41 +204,26 @@ export function ChannelsPage() {
                           ))}
                         </ol>
                         <div className="mt-3 flex items-center gap-2">
-                          {ch.kind === "token" ? (
-                            <>
-                              <Input
-                                type="password"
-                                placeholder={ch.hint}
-                                value={tokens[ch.id] ?? ""}
-                                onChange={(e) => setTokens((t) => ({ ...t, [ch.id]: e.target.value }))}
-                                onKeyDown={(e) => { if (e.key === "Enter" && tokens[ch.id]?.trim()) connect(ch.id, { botToken: tokens[ch.id]!.trim() }, ch.label); }}
-                              />
-                              <Button
-                                variant="primary"
-                                disabled={busy === ch.id || verifying === ch.id || (!tokens[ch.id]?.trim() && !configured)}
-                                onClick={() => (tokens[ch.id]?.trim() ? connect(ch.id, { botToken: tokens[ch.id]!.trim() }, ch.label) : verify(ch.id))}
-                              >
-                                {verifying === ch.id ? (
-                                  <><Loader2 size={14} className="animate-spin" /> checking…</>
-                                ) : tokens[ch.id]?.trim() ? (
-                                  <><Check size={14} /> Connect</>
-                                ) : (
-                                  <><Check size={14} /> Check status</>
-                                )}
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <Input
-                                placeholder="Your Mac's iMessage number or Apple ID email"
-                                value={tokens[ch.id] ?? ""}
-                                onChange={(e) => setTokens((t) => ({ ...t, [ch.id]: e.target.value }))}
-                              />
-                              <Button variant="primary" disabled={busy === ch.id || verifying === ch.id} onClick={() => connect(ch.id, { enabled: true, handle: tokens[ch.id]?.trim() }, ch.label)}>
-                                {verifying === ch.id ? <><Loader2 size={14} className="animate-spin" /> verifying…</> : <><Check size={14} /> {configured ? "Re-enable" : "Enable"}</>}
-                              </Button>
-                            </>
-                          )}
+                          <Input
+                            type="password"
+                            placeholder={ch.hint}
+                            value={tokens[ch.id] ?? ""}
+                            onChange={(e) => setTokens((t) => ({ ...t, [ch.id]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === "Enter" && tokens[ch.id]?.trim()) connect(ch.id, { botToken: tokens[ch.id]!.trim() }, ch.label); }}
+                          />
+                          <Button
+                            variant="primary"
+                            disabled={busy === ch.id || verifying === ch.id || (!tokens[ch.id]?.trim() && !configured)}
+                            onClick={() => (tokens[ch.id]?.trim() ? connect(ch.id, { botToken: tokens[ch.id]!.trim() }, ch.label) : verify(ch.id))}
+                          >
+                            {verifying === ch.id ? (
+                              <><Loader2 size={14} className="animate-spin" /> checking…</>
+                            ) : tokens[ch.id]?.trim() ? (
+                              <><Check size={14} /> Connect</>
+                            ) : (
+                              <><Check size={14} /> Check status</>
+                            )}
+                          </Button>
                         </div>
                         {configured && <p className="mt-2 text-[12px] text-partial">Saved, but the bot isn't live yet — {ch.id === "discord" ? "check the token and that Message Content Intent is ON" : "check the token"}, then press Check status.</p>}
                         {h?.detail && <p className="mt-1 text-[12px] text-withhold">{h.detail}</p>}
