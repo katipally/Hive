@@ -236,6 +236,19 @@ export function App() {
     if (!beeId) return;
     localStorage.setItem("bee_sel", beeId);
     setPairedName(localStorage.getItem(memberKey(beeId)));
+    // Demo: the bee pre-links web-<name>, so discover who we are from the server
+    // instead of waiting for a pairing handshake — /chat opens already "as Alice".
+    if (DEMO) {
+      fetch(`${API_BASE}/my-code?bee=${beeId}&uid=${uidFor(beeId)}`)
+        .then((r) => r.json())
+        .then((r: { name?: string }) => {
+          if (!r?.name) return;
+          localStorage.setItem(memberKey(beeId), r.name);
+          setPairedName(r.name);
+          setMemberNames((mm) => ({ ...mm, [beeId]: r.name as string }));
+        })
+        .catch(() => {});
+    }
   }, [beeId]);
 
   useEffect(() => {
