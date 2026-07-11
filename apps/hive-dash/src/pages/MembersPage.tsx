@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { UserPlus, Copy, Check, MessageSquare, Send, Hash, Smartphone, Settings2, Trash2 } from "lucide-react";
 import { api, type MemberRow, type ChannelInfo } from "../api.js";
@@ -41,8 +41,19 @@ export function MembersPage() {
     }
   }
 
-  const load = () => api<MemberRow[]>("/api/members").then(setMembers).catch(() => toast("Couldn't load members", "error"));
-  useEffect(() => void load(), []);
+  // Cold-start resilient: a just-woken free-tier server can answer an early fetch
+  // before the members are ready. If we get an empty list (or an error), retry a
+  // few times so navigating to this tab right after wake doesn't look empty/broken.
+  const coldRetries = useRef(0);
+  const load = useCallback((): Promise<void> => api<MemberRow[]>("/api/members").then((m) => {
+    setMembers(m);
+    if (m.length === 0 && coldRetries.current < 6) { coldRetries.current++; setTimeout(load, 1500); }
+    else coldRetries.current = 0;
+  }).catch(() => {
+    if (coldRetries.current < 6) { coldRetries.current++; setTimeout(load, 1500); }
+    else toast("Couldn't load members", "error");
+  }), [toast]);
+  useEffect(() => void load(), [load]);
   useEffect(() => { api<ChannelInfo>("/api/channel-info").then(setChInfo).catch(() => {}); }, []);
 
   // The zero-friction handoff: a ready message the operator sends to a friend.
