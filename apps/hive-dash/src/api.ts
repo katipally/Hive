@@ -28,14 +28,13 @@ export interface MemberRow {
 export interface ChannelInfo {
   telegram?: { username: string };
   discord?: { inviteUrl: string };
-  imessage?: { handle: string };
 }
 
 export interface BeeRow {
   beeId: string;
   online: boolean;
   primary: boolean; // the canonical hive bee that hosts the shared channel bots
-  channels: string[]; // configured channel names (telegram/discord/imessage)
+  channels: string[]; // configured channel names (telegram/discord)
 }
 
 export interface PollAskRow {

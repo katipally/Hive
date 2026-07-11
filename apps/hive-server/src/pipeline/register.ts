@@ -2,6 +2,7 @@ import { registerHandler, sweepPendingExtractions, sweepPendingImplications } fr
 import { runExtraction } from "./extract.js";
 import { runConclude } from "./conclude.js";
 import { runImplications } from "./implications.js";
+import { runErrands } from "../proactive/errands.js";
 
 // Wire pipeline stage handlers.
 export function registerPipeline(): void {
@@ -9,6 +10,9 @@ export function registerPipeline(): void {
   registerHandler("conclude", (j) => runConclude((j as { memberId: string }).memberId));
   registerHandler("implications", (j) =>
     runImplications((j as { memberId: string; memoryIds: string[] }).memberId, (j as { memoryIds: string[] }).memoryIds),
+  );
+  registerHandler("errand", (j) =>
+    runErrands((j as { memberId: string; memoryIds: string[] }).memberId, (j as { memoryIds: string[] }).memoryIds),
   );
   sweepPendingExtractions(); // recover any turns left unextracted by a prior crash
   sweepPendingImplications(); // recover any memories whose implications pass was lost to a crash

@@ -9,8 +9,8 @@ const ROLES = [
   { id: "chat", label: "Chat", hint: "Powers bee replies", Icon: MessageSquare },
   { id: "extraction", label: "Extraction", hint: "Turns talk into the graph", Icon: Search },
   { id: "social", label: "Social reasoning", hint: "Disclosure, proactive & conclusions", Icon: Sparkles },
-  { id: "embeddings", label: "Embeddings", hint: "Retrieval & dedup", Icon: Zap },
 ] as const;
+// Retrieval & dedup are lexical (BM25 / FTS5) — no embeddings model, by design.
 
 const EFFORTS = ["off", "low", "medium", "high"];
 const fmtCtx = (n?: number) => (n ? (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}k`) : null);
@@ -50,6 +50,15 @@ export function SettingsPage() {
       setLoading(null);
     }
   }
+  // Preload models for each configured role's provider so the saved model shows in the
+  // dropdown immediately (instead of a blank select until the field is focused).
+  useEffect(() => {
+    if (!settings) return;
+    const provs = new Set(Object.values(settings.modelRoles).map((r) => r?.provider).filter(Boolean) as string[]);
+    for (const p of provs) if (!models[p]) loadModels(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
+
   async function saveRole(role: string, cfg: Record<string, unknown>) {
     try {
       await api(`/api/settings/roles/${role}`, { method: "PUT", body: JSON.stringify(cfg) });
@@ -103,7 +112,7 @@ export function SettingsPage() {
       <div className="flex flex-col gap-2.5">
         {ROLES.map((role) => {
           const cur = settings.modelRoles[role.id];
-          const provList = role.id === "embeddings" ? providers.filter((p) => p.supportsEmbeddings) : providers;
+          const provList = providers;
           const provider = cur?.provider ?? provList[0]?.id ?? "";
           const modelList = models[provider] ?? [];
           const selModel = modelList.find((m) => m.id === cur?.modelId);
@@ -151,20 +160,14 @@ export function SettingsPage() {
                     </select>
                   </Field>
 
-                  {role.id !== "embeddings" ? (
-                    <Field label="Reasoning effort">
-                      <Segmented
-                        value={cur?.thinkingLevel ?? "off"}
-                        onChange={(e) => saveRole(role.id, { ...cur, provider, thinkingLevel: e })}
-                        options={efforts.map((e) => ({ value: e, label: e[0]!.toUpperCase() + e.slice(1) }))}
-                        size="sm"
-                      />
-                    </Field>
-                  ) : (
-                    <Field label="Dimensions">
-                      <Input type="number" defaultValue={cur?.dim ?? 768} onBlur={(e) => saveRole(role.id, { ...cur, provider, dim: Number(e.target.value) })} className="w-24" />
-                    </Field>
-                  )}
+                  <Field label="Reasoning effort">
+                    <Segmented
+                      value={cur?.thinkingLevel ?? "off"}
+                      onChange={(e) => saveRole(role.id, { ...cur, provider, thinkingLevel: e })}
+                      options={efforts.map((e) => ({ value: e, label: e[0]!.toUpperCase() + e.slice(1) }))}
+                      size="sm"
+                    />
+                  </Field>
                 </div>
               </div>
 
@@ -178,7 +181,7 @@ export function SettingsPage() {
                   <span>
                     Reasoning <b className="text-fg">{selModel.supportsReasoning === false ? "no" : "yes"}</b>
                   </span>
-                  {selModel.supportsTools !== false && role.id !== "embeddings" && (
+                  {selModel.supportsTools !== false && (
                     <span>
                       Tools <b className="text-fg">yes</b>
                     </span>

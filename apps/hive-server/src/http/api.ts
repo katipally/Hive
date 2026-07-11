@@ -45,6 +45,7 @@ import { listNudges, setNudgeStatus, setNudgeFeedback } from "../proactive/store
 import { scheduleDelivery, undoNudge } from "../proactive/nudges.js";
 import { startPoll, cancelPoll, synthesizePoll } from "../polling/polls.js";
 import { listPollDetails } from "../polling/store.js";
+import { webSearch, readUrl } from "../tools/search.js";
 
 export function buildApi(version: string): Hono {
   const app = new Hono();
@@ -104,7 +105,7 @@ export function buildApi(version: string): Hono {
   app.put("/api/bees/:beeId/channels/:channel", async (c) => {
     const beeId = c.req.param("beeId");
     const channel = c.req.param("channel");
-    if (!["telegram", "discord", "imessage"].includes(channel)) return c.json({ error: "bad channel" }, 400);
+    if (!["telegram", "discord"].includes(channel)) return c.json({ error: "bad channel" }, 400);
     const config = await c.req.json<Record<string, unknown>>();
     putSecret(`bee:${beeId}:channel:${channel}`, JSON.stringify(config));
     const pushed = sendToBee(beeId, { type: "channel.config", channel: channel as never, config });
@@ -114,14 +115,14 @@ export function buildApi(version: string): Hono {
   app.delete("/api/bees/:beeId/channels/:channel", (c) => {
     const beeId = c.req.param("beeId");
     const channel = c.req.param("channel");
-    if (!["telegram", "discord", "imessage"].includes(channel)) return c.json({ error: "bad channel" }, 400);
+    if (!["telegram", "discord"].includes(channel)) return c.json({ error: "bad channel" }, 400);
     deleteSecret(`bee:${beeId}:channel:${channel}`);
-    clearChannelInfo(channel as "telegram" | "discord" | "imessage");
+    clearChannelInfo(channel as "telegram" | "discord");
     // tell the bee to stop the adapter (empty/disabled config)
     const pushed = sendToBee(beeId, { type: "channel.config", channel: channel as never, config: { enabled: false } });
     return c.json({ ok: true, pushed });
   });
-  // Public join addresses (bot links / iMessage handle) for member invites.
+  // Public join addresses (bot links) for member invites.
   // Backfills Telegram/Discord from already-configured bots (setups made before
   // this existed) so existing hives get real links without re-entering tokens.
   app.get("/api/channel-info", async (c) => {
@@ -235,6 +236,22 @@ export function buildApi(version: string): Hono {
         await stream.writeSSE({ data: JSON.stringify({ type: "error", error: (e as Error).message }) });
       }
     });
+  });
+
+  // ---- errand: real-world web search via Exa (called by the bee's web_lookup tool) ----
+  // Search + cap logic lives in tools/search.ts and is shared with proactive errands.
+  app.post("/api/tools/web-search", async (c) => {
+    const body = await c.req.json<{ query?: string }>().catch(() => ({}) as { query?: string });
+    const q = (body.query ?? "").trim();
+    if (!q) return c.json({ error: "empty query", results: [] }, 400);
+    const res = await webSearch(q);
+    return c.json(res);
+  });
+  app.post("/api/tools/read-url", async (c) => {
+    const body = await c.req.json<{ url?: string }>().catch(() => ({}) as { url?: string });
+    const u = (body.url ?? "").trim();
+    if (!u) return c.json({ error: "empty url" }, 400);
+    return c.json(await readUrl(u));
   });
 
   // ---- reads for the dashboard ----
@@ -359,7 +376,7 @@ export function buildApi(version: string): Hono {
 }
 
 // Record how members can reach a channel: Telegram's @username (from getMe),
-// a Discord bot invite (derived from the token), or the Mac's iMessage handle.
+// or a Discord bot invite (derived from the token).
 async function captureChannelInfo(channel: string, config: Record<string, unknown>): Promise<void> {
   const token = typeof config["botToken"] === "string" ? (config["botToken"] as string) : "";
   if (channel === "telegram" && token) {
@@ -377,9 +394,6 @@ async function captureChannelInfo(channel: string, config: Record<string, unknow
       setChannelInfo({
         discord: { inviteUrl: `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot&permissions=274877975552` },
       });
-  } else if (channel === "imessage" && typeof config["handle"] === "string") {
-    const handle = (config["handle"] as string).trim();
-    if (handle) setChannelInfo({ imessage: { handle } });
   }
 }
 

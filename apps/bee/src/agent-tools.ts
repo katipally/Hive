@@ -106,6 +106,63 @@ export function makeBeeTools(deps: {
     },
     {
       spec: {
+        name: "web_lookup",
+        description:
+          "Search the web for current, real-world information the hive doesn't already know — to help the member find or check something (a product, a place, an event, availability, a current fact). Use ONLY for things outside the member's own history/relationships (use `recall` for those). Returns real results; if it says search isn't available, tell the member you can't look that up right now — NEVER invent an answer.",
+        parameters: {
+          type: "object",
+          properties: { query: { type: "string", description: "The web search query" } },
+          required: ["query"],
+        },
+      },
+      run: async (args) => {
+        const q = String(args.query ?? "").trim();
+        if (!q) return "No query given.";
+        const res = (await hive(`/api/tools/web-search`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ query: q }),
+        })
+          .then((r) => r.json())
+          .catch(() => null)) as
+          | { configured?: boolean; answer?: string | null; results?: { title: string; url: string; snippet: string }[]; error?: string }
+          | null;
+        if (!res) return "Web search is unavailable right now.";
+        if (res.configured === false) return "Web search isn't configured, so I can't look that up right now.";
+        if (res.error) return `Web search failed: ${res.error}`;
+        const lines = (res.results ?? []).map((x) => `- ${x.title}: ${x.snippet} (${x.url})`);
+        return [res.answer ? `Answer: ${res.answer}` : "", lines.join("\n") || "No results found."].filter(Boolean).join("\n\n");
+      },
+    },
+    {
+      spec: {
+        name: "read_url",
+        description:
+          "Fetch and read the full text of a specific web page — e.g. a link the member shared — so you can summarize it or answer questions about it. Use this when there's a URL to open; use `web_lookup` when you need to search and don't have a link.",
+        parameters: {
+          type: "object",
+          properties: { url: { type: "string", description: "The URL to read" } },
+          required: ["url"],
+        },
+      },
+      run: async (args) => {
+        const u = String(args.url ?? "").trim();
+        if (!u) return "No URL given.";
+        const res = (await hive(`/api/tools/read-url`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: u }),
+        })
+          .then((r) => r.json())
+          .catch(() => null)) as { configured?: boolean; page?: { title: string; url: string; text: string }; error?: string } | null;
+        if (!res) return "Couldn't read that page right now.";
+        if (res.configured === false) return "Web reading isn't configured, so I can't open that link right now.";
+        if (res.error || !res.page) return `Couldn't read that page: ${res.error ?? "no content"}`;
+        return `${res.page.title}\n${res.page.url}\n\n${res.page.text}`;
+      },
+    },
+    {
+      spec: {
         name: "explain_decision",
         description:
           "Get the grounds to honestly explain a recent hive decision to the member — why something was (or wasn't) shared about them. Use when they ask 'why did you do/say that?', 'what did you tell people?', or question your behavior.",

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowUp, Sparkles, Mic, AudioLines, Settings2, Plus, PanelLeftClose, PanelLeftOpen, Cable, Send, MessageSquare, Hash, MoreHorizontal, Trash2, Pencil, Link2 } from "lucide-react";
+import { ArrowUp, Sparkles, Mic, AudioLines, Settings2, Plus, PanelLeftClose, PanelLeftOpen, Cable, Send, Hash, MoreHorizontal, Trash2, Pencil, Link2 } from "lucide-react";
 import { BeeMark } from "./Logo.js";
 import { ThemeToggle, useToast, Thinking, StatusDot, Avatar, ConfirmDialog } from "@hive/ui";
 import { cn } from "./lib/cn.js";
+import { Markdown } from "./lib/markdown.js";
 import { dropdown } from "./lib/motion.js";
 import { useBeeChat, uidFor, DEMO } from "./useBeeChat.js";
 import { useVoice } from "./useVoice.js";
@@ -87,7 +88,6 @@ interface BeeInfo {
 // Shared channels the operator has set up — surfaced under the profile's Connections.
 const CONN = [
   { id: "telegram", label: "Telegram", Icon: Send },
-  { id: "imessage", label: "iMessage", Icon: MessageSquare },
   { id: "discord", label: "Discord", Icon: Hash },
 ] as const;
 
@@ -570,7 +570,7 @@ export function App() {
                     <div className={cn("max-w-[80%] rounded-2xl rounded-br-md bg-accent px-3.5 py-2 leading-relaxed text-bg", TEXT_SIZE_CLASS[prefs.textSize])}>{m.text}</div>
                   )}
                   {m.role === "bee" && (
-                    <div className={cn("max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-bl-md border border-border bg-elevated px-3.5 py-2 leading-relaxed text-fg", TEXT_SIZE_CLASS[prefs.textSize])}>{m.text}</div>
+                    <div className={cn("max-w-[85%] rounded-2xl rounded-bl-md border border-border bg-elevated px-3.5 py-2 leading-relaxed text-fg", TEXT_SIZE_CLASS[prefs.textSize])}><Markdown text={m.text} /></div>
                   )}
                   {m.role === "notice" && (
                     <div className="rounded-full bg-fg/[0.05] px-3 py-1 text-[12px] italic text-muted">{m.text}</div>
@@ -580,7 +580,7 @@ export function App() {
                       <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-accent">
                         <Sparkles size={12} /> from the hive
                       </div>
-                      <div className="text-[14px] leading-relaxed text-fg">{m.text}</div>
+                      <div className="text-[14px] leading-relaxed text-fg"><Markdown text={m.text} /></div>
                     </div>
                   )}
                 </motion.div>

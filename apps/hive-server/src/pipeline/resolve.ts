@@ -1,29 +1,22 @@
 import { getDb } from "../db/db.js";
-import { knnMemories } from "../db/vec.js";
+import { lexicalCandidates, tokenSet, jaccard } from "../retrieval/lexical.js";
 
-// Memory dedup: is this new memory near-identical to one the member already has?
-// Uses cosine distance from vec_memories (<= 0.08 distance ≈ >= 0.92 similarity).
-const DUP_DISTANCE = 0.08;
+// Memory dedup, embedding-free: exact normalized match first (cheap), then an FTS
+// shortlist of the member's similar memories checked by Jaccard token overlap.
+const DUP_JACCARD = 0.82;
 
-export function isDuplicateMemory(memberId: string, embedding: number[]): string | null {
-  const hits = knnMemories(embedding, 8);
-  if (hits.length === 0) return null;
+export function isDuplicateMemory(memberId: string, text: string): string | null {
   const { db } = getDb();
-  for (const h of hits) {
-    if (h.distance > DUP_DISTANCE) break;
-    const owner = db.prepare("SELECT member_id FROM memories WHERE id=?").get(h.memoryId) as
-      | { member_id: string }
-      | undefined;
-    if (owner?.member_id === memberId) return h.memoryId;
+  const norm = text.trim().toLowerCase();
+  const exact = db
+    .prepare("SELECT id FROM memories WHERE member_id=? AND lower(trim(text))=? LIMIT 1")
+    .get(memberId, norm) as { id: string } | undefined;
+  if (exact) return exact.id;
+
+  const a = tokenSet(text);
+  if (a.size === 0) return null;
+  for (const c of lexicalCandidates(memberId, text, 5)) {
+    if (jaccard(a, tokenSet(c.text)) >= DUP_JACCARD) return c.id;
   }
   return null;
-}
-
-// Fallback dedup when vectors are disabled: exact-ish text match on the member's recent memories.
-export function isDuplicateText(memberId: string, text: string): string | null {
-  const norm = text.trim().toLowerCase();
-  const r = getDb()
-    .db.prepare("SELECT id FROM memories WHERE member_id=? AND lower(trim(text))=? LIMIT 1")
-    .get(memberId, norm) as { id: string } | undefined;
-  return r?.id ?? null;
 }

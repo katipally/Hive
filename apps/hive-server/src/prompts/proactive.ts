@@ -66,12 +66,19 @@ STRICT JSON only:
  "polls": [{"for": "MemberName or none", "topic": "short label", "question": "what to learn from the group"}]}
 Both arrays empty if nothing is genuinely worth it.`;
 
-export function orchestratorUser(briefs: { name: string; facts: string[] }[], shared: { entity: string; members: string[] }[]): string {
+export function orchestratorUser(
+  briefs: { name: string; facts: string[] }[],
+  shared: { entity: string; members: string[] }[],
+  connections: { a: string; b: string; shared: string[] }[] = [],
+): string {
   const people = briefs.map((b) => `${b.name}:\n${b.facts.map((f) => `  - ${f}`).join("\n") || "  (little known yet)"}`).join("\n\n");
   const commons = shared.length
     ? shared.map((s) => `- ${s.entity}: ${s.members.join(", ")}`).join("\n")
     : "(none detected yet)";
-  return `The group:\n\n${people}\n\nShared interests across members:\n${commons}\n\nWhat group opportunities are genuinely worth acting on right now? Return the JSON.`;
+  const conns = connections.length
+    ? connections.map((c) => `- ${c.a} ↔ ${c.b} (both connected to: ${c.shared.join(", ")})`).join("\n")
+    : "(none detected yet)";
+  return `The group:\n\n${people}\n\nShared interests across members:\n${commons}\n\nLikely connections, ranked by overlap:\n${conns}\n\nWhat group opportunities are genuinely worth acting on right now? Return the JSON.`;
 }
 
 // ---- heartbeat ----

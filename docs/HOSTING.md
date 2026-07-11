@@ -63,9 +63,12 @@ the demo doesn't need a paid disk.
 | `MINIMAX_API_KEY` | Baked-in provider key (set as a secret, never committed) |, |
 | `HIVE_DEMO` | Enable the hive demo bootstrap | `1` (render.yaml) |
 | `BEE_DEMO` | Enable the 3-bee demo runtime | `1` (entrypoint) |
-| `HIVE_DEMO_MODEL` | MiniMax model for chat/extraction/social | `MiniMax-M2` |
+| `HIVE_DEMO_MODEL` | MiniMax model for chat/extraction/social | `MiniMax-M3` |
 | `HIVE_LLM_DAILY_CAP` | Global daily LLM-call cap protecting the shared key | `300` |
+| `HIVE_SALIENCE_MIN` | Min memory salience to trigger a proactive-nudge LLM call | `0.6` |
 | `HIVE_MINIMAX_BASE_URL` | Override for MiniMax's CN endpoint | `api.minimax.io/anthropic` |
+| `EXA_API_KEY` | Exa key enabling the `web_lookup` errand tool. Off if unset. | — |
+| `HIVE_SEARCH_DAILY_CAP` | Daily cap on web searches | `50` |
 | `PORT` | Public port (injected by the host) | `8080` local |
 
 The key is encrypted at rest via the keystore; only its last four characters are shown. When
@@ -92,16 +95,29 @@ variables come from `render.yaml`.
 ### Free-tier behaviour
 
 - **Spin-down:** the instance sleeps after ~15 min idle and cold-starts (~50s) on the next
-  request. Open the URL once before sharing it, or keep it warm with a free pinger hitting
-  `/api/health`. The dashboard's graph and members views retry while empty, so a cold start
-  doesn't leave them looking broken.
+  request. This also pauses Hive's proactive loops, so **keep it warm** if you want it to
+  initiate unattended (see below).
 - **Ephemeral disk:** runtime data resets on restart/redeploy; the demo re-seeds on boot.
+
+### Keeping it awake (so proactivity actually runs)
+
+Hive's proactive brain only runs while the process is up. Two free options to defeat the
+15-min spin-down — both just keep the process warm (zero LLM calls; token spend is still
+governed by the salience gate + `HIVE_LLM_DAILY_CAP`):
+
+- **cron-job.org (recommended):** create a job hitting `https://hive-demo.onrender.com/api/health`
+  every ~10 min. 1-minute granularity, reliable.
+- **GitHub Actions:** `.github/workflows/keep-warm.yml` pings the same URL on a schedule.
+  Convenient but GitHub may delay/drop scheduled runs under load, so it's best-effort.
+
+"Awake" ≠ "always thinking": the ping keeps it alive; it only *reasons* (and spends tokens)
+when a real event — a new salient fact, a cross-member overlap — justifies it.
 
 ## What is not hosted
 
-The **iMessage** channel reads a Mac's `chat.db` and sends via AppleScript, and the
-**Telegram/Discord** channels need bot tokens, all local-operator features. The hosted demo
-uses the **web** channel only.
+The **Telegram/Discord** channels need bot tokens, so they're local-operator setup. The
+hosted demo uses the **web** channel only. (iMessage is not supported — Apple has no server
+API; see docs/CHANNELS.md.)
 
 ## Run the container locally
 

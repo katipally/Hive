@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
 CREATE TABLE IF NOT EXISTS channel_identities (
   id TEXT PRIMARY KEY,
   member_id TEXT NOT NULL REFERENCES members(id),
-  channel TEXT NOT NULL CHECK (channel IN ('web','telegram','discord','imessage')),
+  channel TEXT NOT NULL CHECK (channel IN ('web','telegram','discord')),
   external_id TEXT NOT NULL,
   display_name TEXT,
   bee_id TEXT,
@@ -69,11 +69,15 @@ CREATE TABLE IF NOT EXISTS entities (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   type TEXT NOT NULL,
+  norm TEXT,                    -- normalized name for resolution (case/space/punct-insensitive)
   attrs TEXT NOT NULL DEFAULT '{}',
   member_id TEXT REFERENCES members(id),
   created_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_name_type ON entities(lower(name), type);
+CREATE INDEX IF NOT EXISTS idx_entities_member ON entities(member_id);
+-- NOTE: idx_entities_norm is created in db.ts AFTER the `norm` column migration (the
+-- column is added by ALTER on pre-existing DBs, which runs after this file).
 
 CREATE TABLE IF NOT EXISTS memories (
   id TEXT PRIMARY KEY,
@@ -88,6 +92,15 @@ CREATE TABLE IF NOT EXISTS memories (
   implications_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_memories_member ON memories(member_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_memories_salience ON memories(member_id, kind, salience);
+
+-- Lexical (BM25) full-text search over memory text — the graphify-style, embedding-free
+-- retrieval backbone. Maintained manually from graph/write.ts (insert/delete), and
+-- backfilled at open for pre-existing rows (see db.ts). member_id is stored UNINDEXED so
+-- retrieval can scope/split by owner without a join.
+CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+  memory_id UNINDEXED, member_id UNINDEXED, text, tokenize = 'porter unicode61'
+);
 
 CREATE TABLE IF NOT EXISTS edges (
   id TEXT PRIMARY KEY,
@@ -104,6 +117,8 @@ CREATE TABLE IF NOT EXISTS edges (
 );
 CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src_entity_id, rel);
 CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst_entity_id);
+CREATE INDEX IF NOT EXISTS idx_edges_srcmem ON edges(source_memory_id);
+CREATE INDEX IF NOT EXISTS idx_edges_live ON edges(invalidated_at);
 
 CREATE TABLE IF NOT EXISTS disclosures (
   id TEXT PRIMARY KEY,
@@ -124,7 +139,7 @@ CREATE TABLE IF NOT EXISTS disclosures (
 CREATE TABLE IF NOT EXISTS nudges (
   id TEXT PRIMARY KEY,
   member_id TEXT NOT NULL REFERENCES members(id),
-  kind TEXT NOT NULL CHECK (kind IN ('event','heartbeat')),
+  kind TEXT NOT NULL CHECK (kind IN ('event','heartbeat','errand')),
   status TEXT NOT NULL CHECK (status IN ('proposed','queued','sent','suppressed','dismissed','failed')),
   draft TEXT,
   reasoning TEXT NOT NULL,

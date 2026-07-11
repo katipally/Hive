@@ -6,8 +6,8 @@ There are **two sides** to setup:
 2. **Each member, when they join.** They send a short invite code to a bot — that's it.
 
 The hive is the server-side brain. People only ever talk to **their bee** on whatever
-channel they've linked. One Telegram bot (or Discord bot, or the Mac's iMessage)
-serves everyone — you do **not** set up a bot per person.
+channel they've linked. One Telegram bot (or Discord bot) serves everyone — you do
+**not** set up a bot per person.
 
 ---
 
@@ -57,30 +57,9 @@ This is the one-time bot setup. Everything here runs on your **primary bee**.
    allow DMs to it).
 5. Dashboard → **Channels** → Discord → paste the token → **Connect**.
 
-**iMessage** (macOS only)
-> There is **no official iMessage API** — an Apple Developer account does not grant
-> one. The hive reads your Mac's local Messages database instead.
-1. Grant **Full Disk Access** to whatever runs the bee: System Settings → Privacy &
-   Security → Full Disk Access → add **Terminal** (or your IDE).
-2. Dashboard → **Channels** → iMessage → **Enable on this Mac**.
-3. The first time it sends, macOS asks to allow controlling Messages — click OK.
-
-Your Mac's own iMessage account (your number/email) becomes the hive's inbox.
-
-**Give the hive its own iMessage address (recommended — not your personal number):**
-There is no official way to make an iMessage "bot", but you can run the hive under a
-**dedicated Apple ID** so members message `hive@icloud.com` instead of you:
-1. Create a free Apple ID (you'll likely need a phone number just for 2FA at signup).
-2. Make a **separate macOS user account**, log into it, and sign **Messages** into that
-   Apple ID. Grant that user Full Disk Access.
-3. Point the bee at that user's database: set the iMessage channel's `dbPath` to
-   `/Users/<that-user>/Library/Messages/chat.db` (in `bee-data/bee.json`).
-4. In the dashboard Channels tab, enter that Apple ID as the iMessage handle so it
-   shows up in member invites.
-
-Caveats (all real): Apple rate-limits automation (keep it well under ~100 messages/day),
-has begun cracking down on unofficial automation (ban risk), and the Mac must stay awake
-and signed in. For a small friend group this is fine; don't use it at scale.
+> **No iMessage.** Apple has no server API for iMessage, and it can't run on a hosted
+> (Linux) server, so it isn't supported. Use **Telegram** for the "texts you on your
+> phone" experience. See docs/CHANNELS.md.
 
 ### 4. Add members
 
@@ -96,8 +75,7 @@ You hand them a code (`BEE-1234`) and tell them which bot to message:
 | Channel   | What the member does                                              |
 |-----------|------------------------------------------------------------------|
 | Telegram  | Open your hive's Telegram bot, send `BEE-1234`                     |
-| Discord   | DM your hive's Discord bot, send `BEE-1234`                        |
-| iMessage  | Text your Mac's iMessage (your number/email), send `BEE-1234`     |
+| Discord   | Join the server, DM your hive's Discord bot, send `BEE-1234`       |
 | Web       | Open the web chat, paste `BEE-1234`                               |
 
 The bee replies "✅ Linked!" and they can talk normally from then on. If they later

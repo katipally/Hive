@@ -23,10 +23,23 @@ export async function runImplications(memberId: string, memoryIds: string[]): Pr
   const member = getMember(memberId);
   if (!member || memoryIds.length === 0) return mark();
 
-  const facts = memoryIds
-    .map((mid) => (db.prepare("SELECT text FROM memories WHERE id=?").get(mid) as { text: string } | undefined)?.text)
-    .filter((t): t is string => !!t);
-  if (facts.length === 0) return mark();
+  const rows = memoryIds
+    .map((mid) => db.prepare("SELECT text, salience FROM memories WHERE id=?").get(mid) as { text: string; salience: number } | undefined)
+    .filter((r): r is { text: string; salience: number } => !!r);
+  if (rows.length === 0) return mark();
+
+  // Cheap no-LLM pre-filter: only spend a social LLM call when something here is
+  // actually salient enough to be worth telling someone. Mundane facts (default
+  // salience ~0.5) never trigger the call, so idle/small-talk chatter costs 0 tokens.
+  // ponytail: salience-only gate; add "new shared-entity overlap" as a second trigger
+  // if genuinely important-but-low-salience facts start getting missed.
+  const SALIENCE_MIN = Number(process.env["HIVE_SALIENCE_MIN"] ?? 0.6);
+  if (Math.max(...rows.map((r) => r.salience)) < SALIENCE_MIN) {
+    logActivity("implication", memberId, { summary: "skipped (nothing salient enough to share)", count: 0 });
+    return mark();
+  }
+
+  const facts = rows.map((r) => r.text);
 
   const others = listMembers().filter((m) => m.id !== memberId);
   if (others.length === 0) return mark();

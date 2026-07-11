@@ -1,26 +1,28 @@
 import { getDb } from "../db/db.js";
 import { id } from "@hive/shared";
 import type { EntityType } from "@hive/shared";
-import { upsertMemoryVector } from "../db/vec.js";
+import { ftsInsert, ftsDelete } from "../retrieval/lexical.js";
+import { resolveExistingEntity, normName } from "./entity-resolve.js";
 
 const VALID_TYPES: EntityType[] = ["person", "place", "org", "event", "thing", "topic"];
 
 export function upsertEntity(name: string, type: string, memberId: string | null): string {
   const t = (VALID_TYPES.includes(type as EntityType) ? type : "thing") as EntityType;
   const { db } = getDb();
-  const existing = db
-    .prepare("SELECT id, member_id FROM entities WHERE lower(name)=lower(?) AND type=?")
-    .get(name, t) as { id: string; member_id: string | null } | undefined;
+  // Resolve to an existing node (normalized exact, then guarded fuzzy) instead of a raw
+  // lower(name) match — so "New York"/"new-york" and "Google"/"Googel" collapse cleanly.
+  const existing = resolveExistingEntity(name, t);
   if (existing) {
     if (memberId && !existing.member_id)
       db.prepare("UPDATE entities SET member_id=? WHERE id=?").run(memberId, existing.id);
     return existing.id;
   }
   const eid = id("ent");
-  db.prepare("INSERT INTO entities(id,name,type,member_id,created_at) VALUES(?,?,?,?,?)").run(
+  db.prepare("INSERT INTO entities(id,name,type,norm,member_id,created_at) VALUES(?,?,?,?,?,?)").run(
     eid,
     name,
     t,
+    normName(name),
     memberId,
     Date.now(),
   );
@@ -29,8 +31,8 @@ export function upsertEntity(name: string, type: string, memberId: string | null
 
 export function findEntityByName(name: string): { id: string; type: string } | null {
   const r = getDb()
-    .db.prepare("SELECT id,type FROM entities WHERE lower(name)=lower(?) ORDER BY created_at LIMIT 1")
-    .get(name) as { id: string; type: string } | undefined;
+    .db.prepare("SELECT id,type FROM entities WHERE norm=? ORDER BY created_at LIMIT 1")
+    .get(normName(name)) as { id: string; type: string } | undefined;
   return r ?? null;
 }
 
@@ -41,7 +43,6 @@ export function insertMemory(m: {
   salience: number;
   sourceTurnId: string | null;
   provenance?: string[];
-  embedding?: number[];
 }): string {
   const mid = id("mry");
   getDb()
@@ -49,7 +50,7 @@ export function insertMemory(m: {
       "INSERT INTO memories(id,member_id,kind,text,salience,source_turn_id,provenance,created_at) VALUES(?,?,?,?,?,?,?,?)",
     )
     .run(mid, m.memberId, m.kind, m.text, m.salience, m.sourceTurnId, JSON.stringify(m.provenance ?? []), Date.now());
-  if (m.embedding) upsertMemoryVector(mid, m.embedding);
+  ftsInsert(mid, m.memberId, m.text); // keep the lexical index in sync
   return mid;
 }
 
@@ -72,20 +73,14 @@ export function insertEdge(e: {
 
 // ---- deletion / correction ----
 export function deleteMemory(id: string): boolean {
-  const { db, vecEnabled } = getDb();
+  const { db } = getDb();
   const exists = db.prepare("SELECT 1 FROM memories WHERE id=?").get(id);
   if (!exists) return false;
   // detach edges that cite this memory (keep the edges, drop the provenance)
   db.prepare("UPDATE edges SET source_memory_id=NULL WHERE source_memory_id=?").run(id);
   db.prepare("UPDATE edges SET invalidated_by_memory_id=NULL WHERE invalidated_by_memory_id=?").run(id);
   db.prepare("UPDATE memories SET superseded_by=NULL WHERE superseded_by=?").run(id);
-  if (vecEnabled) {
-    try {
-      db.prepare("DELETE FROM vec_memories WHERE memory_id=?").run(id);
-    } catch {
-      /* vec table may not exist yet */
-    }
-  }
+  ftsDelete(id);
   db.prepare("DELETE FROM memories WHERE id=?").run(id);
   return true;
 }
@@ -117,6 +112,17 @@ export function forgetLastMemory(memberId: string): string | null {
   db.prepare("DELETE FROM edges WHERE source_memory_id=?").run(row.id);
   deleteMemory(row.id);
   return row.text;
+}
+
+// The current live target of a functional relation (for contradiction detection).
+export function liveEdgeDst(srcEntityId: string, rel: string): { dstId: string; dstName: string } | null {
+  const r = getDb()
+    .db.prepare(
+      `SELECT e.dst_entity_id dstId, d.name dstName FROM edges e JOIN entities d ON d.id=e.dst_entity_id
+       WHERE e.src_entity_id=? AND e.rel=? AND e.invalidated_at IS NULL ORDER BY e.created_at DESC LIMIT 1`,
+    )
+    .get(srcEntityId, rel) as { dstId: string; dstName: string } | undefined;
+  return r ?? null;
 }
 
 // Close any live edges matching src+rel (functional relation superseded).

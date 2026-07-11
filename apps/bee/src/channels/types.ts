@@ -17,6 +17,9 @@ export interface ReplySink {
   done(fullText: string): void | Promise<void>;
   // out-of-band notice (pairing prompts, errors) — not part of the conversation
   notice(text: string): void | Promise<void>;
+  // discard whatever's been streamed so far this turn (used to drop tool-call narration
+  // so the user sees one clean reply). No-op on non-streaming channels.
+  reset?(): void;
 }
 
 export interface ChannelAdapter {

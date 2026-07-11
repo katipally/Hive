@@ -72,17 +72,32 @@ export async function* anthropicStream(req: ChatRequest): AsyncGenerator<StreamE
     body["temperature"] = req.temperature;
   }
 
-  const res = await fetch(`${req.baseUrl}/v1/messages`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": req.apiKey ?? "",
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-    signal: req.signal,
-  });
-  if (!res.ok) throw new Error(`anthropic ${res.status}: ${await res.text()}`);
+  // Retry transient overload / rate-limit responses (MiniMax returns 429/529 "server
+  // cluster under high load" when busy). Backoff honors Retry-After, else exponential
+  // with jitter. Safe because we retry BEFORE streaming any output.
+  const RETRYABLE = new Set([429, 500, 503, 529]);
+  const MAX_ATTEMPTS = 4;
+  let res!: Response;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(`${req.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": req.apiKey ?? "",
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+      signal: req.signal,
+    });
+    if (res.ok) break;
+    if (!RETRYABLE.has(res.status) || attempt >= MAX_ATTEMPTS - 1) {
+      throw new Error(`anthropic ${res.status}: ${await res.text()}`);
+    }
+    const retryAfter = Number(res.headers.get("retry-after")) || 0;
+    await res.text().catch(() => {}); // drain the failed body before retrying
+    const waitMs = retryAfter > 0 ? retryAfter * 1000 : Math.min(8000, 600 * 2 ** attempt) + Math.floor(Math.random() * 300);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
 
   const toolAcc = new Map<number, { id: string; name: string; json: string }>();
   let usage: { inputTokens: number; outputTokens: number } | undefined;

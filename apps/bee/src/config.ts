@@ -12,10 +12,7 @@ export interface BeeInstanceConfig {
     web?: { enabled: boolean };
     telegram?: { botToken: string };
     discord?: { botToken: string };
-    imessage?: { enabled: boolean; dbPath?: string }; // dbPath → a dedicated macOS user's chat.db
   };
-  // iMessage poll cursor (M9)
-  imessageCursor?: number;
 }
 
 export interface BeeConfig {

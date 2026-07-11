@@ -46,6 +46,7 @@ export const PROVIDER_IDS = Object.keys(PROVIDERS) as ProviderId[];
 
 // MiniMax has no reliable public model-list endpoint; keep a static fallback.
 export const MINIMAX_FALLBACK_MODELS = [
+  "MiniMax-M3",
   "MiniMax-M2",
   "MiniMax-Text-01",
   "abab6.5s-chat",

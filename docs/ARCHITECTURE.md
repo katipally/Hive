@@ -109,5 +109,5 @@ Each bee runs a tool-using agent loop. The tools call back into the hive: `recal
 grounded context), `my_memories`, `whats_shared_about_me`, `set_privacy`, `ask_network`
 (kick off a poll), and `explain_decision`. LLM completions stream through the hive's proxy
 (`/api/llm/chat`) so the bee never needs a key. Channel adapters (`web`, `telegram`,
-`discord`, `imessage`) share one message handler; non-web channels are claimed by a single
+`discord`) share one message handler; non-web channels are claimed by a single
 bee so two adapters never double-process the same inbox.

@@ -10,7 +10,6 @@ import { detectCode, pairingPrompt } from "./pairing.js";
 import type { ChannelAdapter, InboundMessage, ReplySink } from "./channels/types.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { DiscordChannel } from "./channels/discord.js";
-import { IMessageChannel } from "./channels/imessage/watcher.js";
 
 interface Linked {
   memberId: string;
@@ -18,9 +17,9 @@ interface Linked {
   channelIdentityId: string;
 }
 
-// A non-web channel (Telegram/Discord/iMessage) must run on exactly ONE bee, or
-// two adapters double-process the same inbox (e.g. two bees both reading chat.db).
-// First bee to claim a channel owns it; others skip. Web is per-bee (fine).
+// A non-web channel (Telegram/Discord) must run on exactly ONE bee, or two adapters
+// double-process the same inbox. First bee to claim a channel owns it; others skip.
+// Web is per-bee (fine).
 const claimedChannels = new Map<ChannelKind, string>();
 
 export class Bee {
@@ -49,21 +48,7 @@ export class Bee {
     const ch = this.instance.channels;
     if (ch.telegram?.botToken) this.registerAdapter(new TelegramChannel(ch.telegram.botToken));
     if (ch.discord?.botToken) this.registerAdapter(new DiscordChannel(ch.discord.botToken));
-    if (ch.imessage?.enabled) this.registerAdapter(this.makeIMessage());
     // web adapter is registered by the runtime
-  }
-
-  private makeIMessage(): IMessageChannel {
-    return new IMessageChannel(
-      this.instance.imessageCursor ?? 0,
-      (rowid) => {
-        this.instance.imessageCursor = rowid;
-        const idx = this.cfg.instances.findIndex((i) => i.beeId === this.instance.beeId);
-        if (idx >= 0) this.cfg.instances[idx] = this.instance;
-        saveConfig(this.cfg);
-      },
-      this.instance.channels.imessage?.dbPath,
-    );
   }
 
   // Full teardown for a deleted profile: stop every channel adapter, release any
@@ -96,7 +81,7 @@ export class Bee {
   // Live health per channel — powers the "verify" step in the connect UI.
   channelHealth(): Record<string, { configured: boolean; running: boolean; detail?: string }> {
     const out: Record<string, { configured: boolean; running: boolean; detail?: string }> = {};
-    for (const kind of ["telegram", "discord", "imessage"] as const) {
+    for (const kind of ["telegram", "discord"] as const) {
       const configured = !!this.instance.channels[kind];
       const a = this.adapters.get(kind);
       const h = a?.health();
@@ -312,13 +297,30 @@ export class Bee {
 
     const history = await loadHistoryCompacted(this.instance.beeId, sessionId, summarize);
     const system = buildSystem(linked.memberName, blocks, persona);
+    // Some models (e.g. MiniMax) under-weight the system prompt and only reliably use
+    // facts that appear in the CONVERSATION. So we also seed the hive's retrieved memory
+    // as a prior turn the bee already "said" — the model trusts its own earlier statements,
+    // which fixes "what do you know about me?" answered with "nothing" despite full context.
+    const ownFacts = blocks.filter((b) => b.kind !== "disclosure-note").map((b) => b.text);
+    if (ownFacts.length) {
+      // Insert RIGHT BEFORE the current user turn so it's the most-recent context the model
+      // sees (models attend to recent turns; putting it at the start gets ignored).
+      history.splice(Math.max(0, history.length - 1), 0,
+        { role: "user", content: `(memory refresh) what do you know about ${linked.memberName} so far?` },
+        { role: "assistant", content: `Here's what the hive has on file about ${linked.memberName}:\n${ownFacts.map((f) => `- ${f}`).join("\n")}` },
+      );
+    }
     const tools = makeBeeTools({
       hiveHttpUrl: this.cfg.hiveHttpUrl,
       memberId: linked.memberId,
       recall: (q) => this.link.context(linked.memberId, sessionId, q),
     });
 
-    let full = "";
+    // Stream only the FINAL answer, not the model's tool-by-tool narration. Text said
+    // BEFORE a tool call is "working" chatter ("let me update the hive…"); we discard it
+    // so every channel gets one clean reply instead of "updating… saved… updating…".
+    let full = ""; // the clean final answer
+    let curTurn = ""; // text streamed so far this turn (may just be narration)
     try {
       for await (const ev of runAgentLoop(history, {
         streamFn: hiveStreamFn({ hiveHttpUrl: this.cfg.hiveHttpUrl, beeId: this.instance.beeId, beeToken: this.instance.beeToken, role: "chat" }),
@@ -328,17 +330,25 @@ export class Bee {
         tools,
         maxTurns: 6,
       })) {
-        if (ev.type === "text_delta") {
-          full += ev.text;
+        if (ev.type === "turn_start") {
+          curTurn = "";
+        } else if (ev.type === "text_delta") {
+          curTurn += ev.text;
           sink.delta(ev.text);
+        } else if (ev.type === "tool_start" && curTurn) {
+          // that text was pre-tool narration — wipe it from the live stream
+          sink.reset?.();
+          curTurn = "";
+        } else if (ev.type === "turn_end") {
+          full = ev.text || curTurn;
         }
       }
     } catch (e) {
       await sink.notice(`(couldn't reach my brain: ${(e as Error).message})`);
       return;
     }
-
-    await sink.done(full);
+    full = cleanReply(full || curTurn);
+    await sink.done(full); // done carries the clean final text; the web replaces the stream with it
     appendSession(this.instance.beeId, sessionId, "assistant", full);
     if (!offRecord) {
       appendDisplay(this.instance.beeId, sessionId, "bee", full);
@@ -410,9 +420,16 @@ export class Bee {
       this.registerAdapter(new TelegramChannel((config as { botToken: string }).botToken));
     else if (channel === "discord" && (config as { botToken?: string }).botToken)
       this.registerAdapter(new DiscordChannel((config as { botToken: string }).botToken));
-    else if (channel === "imessage" && (config as { enabled?: boolean }).enabled)
-      this.registerAdapter(this.makeIMessage());
   }
+}
+
+// Tidy a reply before it leaves the bee: strip a stray tool-call marker some models
+// (MiniMax) leak at tool boundaries, and collapse runaway blank lines.
+function cleanReply(s: string): string {
+  return s
+    .replace(/\[e~\[/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function buildSystem(memberName: string, blocks: ContextBlock[], persona = ""): string {
@@ -427,11 +444,13 @@ TOOLS — you can act, not just answer:
 - Call \`recall\` to look up facts before answering anything about people, plans, preferences, or the past. Privacy is enforced by the hive, so trust what it returns.
 - Use \`my_memories\` / \`whats_shared_about_me\` when asked what you know about them or what others know.
 - Use \`set_privacy\` when they ask to keep something private.
+- Use \`web_lookup\` to find real-world / current info the hive doesn't have (a product, place, event, availability, a current fact). Share what it returns; if it's unavailable, say so — never invent.
+- Use \`read_url\` to open and read a specific link the member shares, so you can summarize it or answer questions about it.
 
 GROUNDING — this is critical:
-- Only state facts about people, places, events, or preferences that appear in "Hive context" below, that a tool returned, or that ${memberName} has told you in this conversation.
-- If you don't have the information, say so plainly ("I don't have anything about that yet", "I don't know Yash"). NEVER invent names, dates, places, preferences, or any detail. Do not guess or fill gaps with plausible-sounding facts.
-- Admitting you don't know is always better than making something up.
+- The section "WHAT THE HIVE REMEMBERS ABOUT ${memberName}" below is real, verified memory. When ${memberName} asks what you know/remember, or anything about their life, plans, city, or preferences, ANSWER DIRECTLY FROM those facts. Never reply "I don't have that / nothing saved" when the answer is listed there — that's the #1 mistake to avoid.
+- Only state facts that appear in that memory below, that a tool returned, or that ${memberName} told you in this conversation. NEVER invent names, dates, places, or preferences.
+- ONLY if there are genuinely no relevant facts below AND it wasn't said in this chat, say plainly "I don't have anything about that yet" — never guess or fill gaps with plausible-sounding detail.
 
 DISCRETION — how you handle other people (just as critical):
 - You work for ${memberName} alone. Talk about ${memberName}'s own life freely.
@@ -441,7 +460,7 @@ DISCRETION — how you handle other people (just as critical):
   const ownBlocks = blocks.filter((b) => b.kind !== "disclosure-note");
   const otherBlocks = blocks.filter((b) => b.kind === "disclosure-note");
   if (ownBlocks.length) {
-    s += `\n\nContext about ${memberName} (use it naturally; don't recite it verbatim):`;
+    s += `\n\nWHAT THE HIVE REMEMBERS ABOUT ${memberName} (real, verified memory — answer their questions directly from this; don't recite it robotically, but NEVER claim you have nothing when facts are listed here):`;
     for (const b of ownBlocks) s += `\n- ${b.text}`;
   }
   if (otherBlocks.length) {

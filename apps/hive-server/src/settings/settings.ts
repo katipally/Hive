@@ -68,7 +68,6 @@ export function setProactive(cfg: Partial<ProactiveConfig>): void {
 export interface ChannelInfo {
   telegram?: { username: string }; // → t.me/<username>
   discord?: { inviteUrl: string };
-  imessage?: { handle: string }; // phone number or Apple ID email of the hive's Mac
 }
 export function getChannelInfo(): ChannelInfo {
   return getJson<ChannelInfo>("channelInfo", {});

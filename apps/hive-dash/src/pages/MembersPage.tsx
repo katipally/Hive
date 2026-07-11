@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { UserPlus, Copy, Check, MessageSquare, Send, Hash, Smartphone, Settings2, Trash2 } from "lucide-react";
+import { UserPlus, Copy, Check, MessageSquare, Send, Hash, Settings2, Trash2 } from "lucide-react";
 import { api, type MemberRow, type ChannelInfo } from "../api.js";
 import { useDashSocket } from "../useDashSocket.js";
 import { Button, Card, Input, PageHeader, EmptyState, Field, Avatar, StatusDot } from "../components/ui.js";
@@ -17,7 +17,6 @@ const CHANNEL_ICON: Record<string, typeof MessageSquare> = {
   web: MessageSquare,
   telegram: Send,
   discord: Hash,
-  imessage: Smartphone,
 };
 
 export function MembersPage() {
@@ -60,8 +59,7 @@ export function MembersPage() {
   function inviteText(code: string): string {
     const ways: string[] = [];
     if (chInfo.telegram?.username) ways.push(`• Telegram: https://t.me/${chInfo.telegram.username}`);
-    if (chInfo.imessage?.handle) ways.push(`• iMessage: text ${chInfo.imessage.handle}`);
-    if (chInfo.discord?.inviteUrl) ways.push(`• Discord: ${chInfo.discord.inviteUrl} — then DM the bot`);
+    if (chInfo.discord?.inviteUrl) ways.push(`• Discord: join the server ${chInfo.discord.inviteUrl} — then DM the bot`);
     ways.push("• Web chat: open the app and paste your code");
     return `Join our hive! Message us on any of these and send your code:\n\n  ${code}\n\n${ways.join("\n")}`;
   }

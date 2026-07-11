@@ -46,7 +46,22 @@ const ACTIVITY_COLOR: Record<string, string> = {
   disclosure: "#57c8bf",
   nudge: "#ff7a6b",
   heartbeat_pass: "#74d68a",
+  poll: "#f0b429",
+  errand: "#9b8cff",
   error: "#e5615a",
+};
+
+// The rail reads as the hive's inner monologue — each activity type as a thought verb.
+const THOUGHT: Record<string, string> = {
+  extraction: "learned",
+  conclusion: "realized",
+  implication: "considered sharing",
+  disclosure: "weighed what to share",
+  nudge: "reached out",
+  heartbeat_pass: "checked in",
+  poll: "asked the group",
+  errand: "ran an errand",
+  error: "hit a snag",
 };
 
 export function ProactivePage() {
@@ -212,15 +227,15 @@ export function ProactivePage() {
       {/* activity rail — its own elevated panel */}
       <div className="flex w-[340px] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)]">
         <div className="flex items-center gap-2 px-5 py-4 text-[13px] font-medium text-fg">
-          <Activity size={15} className="text-accent" /> Activity
+          <Activity size={15} className="text-accent" /> Stream of consciousness
         </div>
         <div className="flex-1 space-y-1.5 overflow-y-auto px-4 pb-6">
-          {activity.length === 0 && <p className="px-1 text-[12px] text-faint">Quiet for now.</p>}
+          {activity.length === 0 && <p className="px-1 text-[12px] text-faint">Quiet mind for now.</p>}
           {activity.map((a) => (
             <div key={a.id} className="rounded-lg border border-border bg-card/70 px-3 py-2">
               <div className="flex items-center gap-2">
                 <span className="size-2 rounded-full" style={{ background: ACTIVITY_COLOR[a.type] ?? "#a89e88" }} />
-                <span className="font-mono text-[11px] text-fg">{a.type}</span>
+                <span className="text-[11px] font-medium text-fg">{THOUGHT[a.type] ?? a.type}</span>
                 <span className="ml-auto text-[10px] text-faint">{new Date(a.ts).toLocaleTimeString()}</span>
               </div>
               <div className={cn("mt-1 pl-4 text-[12px]", a.type === "error" ? "text-withhold" : "text-muted")}>

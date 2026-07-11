@@ -43,6 +43,7 @@ export class WebChannel implements ChannelAdapter {
         delta: (text) => ws.send(JSON.stringify({ type: "delta", text })),
         done: (text) => ws.send(JSON.stringify({ type: "done", text })),
         notice: (text) => ws.send(JSON.stringify({ type: "notice", text })),
+        reset: () => ws.send(JSON.stringify({ type: "reset" })),
       };
       this.onMessage?.(
         { channel: "web", externalId, displayName: null, text: m.text, ts: Date.now(), sessionTag },
@@ -132,7 +133,7 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
     if (!bee) return c.json({ error: "unknown bee" }, 404);
     return c.json(bee.channelHealth());
   });
-  // Public join addresses (bot links / iMessage handle) — passthrough from the hive.
+  // Public join addresses (bot links) — passthrough from the hive.
   app.get("/api/channel-info", async (c) => {
     const info = await fetch(`${cfg.hiveHttpUrl}/api/channel-info`).then((x) => x.json()).catch(() => ({}));
     return c.json(info as Record<string, unknown>);

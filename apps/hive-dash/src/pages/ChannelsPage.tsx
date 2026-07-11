@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Send, Hash, MessageSquare, Globe, Check, X, Loader2 } from "lucide-react";
+import { Send, Hash, Globe, Check, X, Loader2 } from "lucide-react";
 import { api, type BeeRow, type ChannelInfo } from "../api.js";
 import { PageHeader, Card, Input, Button, Pill, StatusDot } from "../components/ui.js";
 import { useToast } from "@hive/ui";
@@ -31,28 +31,16 @@ const CHANNELS = [
     Icon: Hash,
     kind: "token" as const,
     hint: "Bot token — Message Content Intent must be ON",
-    connect: "Members DM this Discord bot their invite code (BEE-XXXX).",
+    connect: "Invite each member to your private server, then they DM the bot their invite code (BEE-XXXX).",
+    note: "Discord only lets a bot DM someone who shares a server with it — so you make one private server, invite the bot AND your members to it, and the actual chatting still happens in DMs.",
     steps: [
       "Open discord.com/developers/applications → New Application → name it → Create.",
-      "Left menu → Bot → Add Bot (if asked).",
-      "Turn ON “Message Content Intent” under Privileged Gateway Intents → Save.",
+      "Left menu → Bot → turn ON “Message Content Intent” (Privileged Gateway Intents) → Save.",
       "Reset Token → Copy it.",
-      "Left menu → Installation (or OAuth2 → URL Generator): tick scope “bot”, open the link, add the bot / allow DMs.",
-      "Paste the token below and press Connect.",
-    ],
-  },
-  {
-    id: "imessage",
-    label: "iMessage",
-    Icon: MessageSquare,
-    kind: "toggle" as const,
-    hint: "Runs on this Mac using your own iMessage.",
-    connect: "Members text this Mac's iMessage (your number or Apple ID email) with their invite code (BEE-XXXX).",
-    steps: [
-      "This runs on THIS Mac — no bot to create.",
-      "System Settings → Privacy & Security → Full Disk Access → turn ON Terminal (or your IDE). Restart that app.",
-      "Press “Enable on this Mac” below.",
-      "The first send will prompt macOS to allow controlling Messages — click OK.",
+      "In Discord, click the + in your server list → “Create My Own” → make a private server (this is required — a bot can only DM people who share a server with it).",
+      "Back in the dev portal: OAuth2 → URL Generator → tick scope “bot” → open the link → add the bot to that private server.",
+      "Invite the people who’ll use it to that same server.",
+      "Paste the token below and press Connect. Members then DM the bot “BEE-XXXX”.",
     ],
   },
 ] as const;
@@ -80,7 +68,6 @@ export function ChannelsPage() {
   const joinAddress = (id: string): string | null => {
     if (id === "telegram" && chInfo.telegram?.username) return `https://t.me/${chInfo.telegram.username}`;
     if (id === "discord" && chInfo.discord?.inviteUrl) return chInfo.discord.inviteUrl;
-    if (id === "imessage" && chInfo.imessage?.handle) return `text ${chInfo.imessage.handle}`;
     return null;
   };
 
@@ -207,6 +194,9 @@ export function ChannelsPage() {
                       </div>
                     ) : (
                       <>
+                        {"note" in ch && ch.note && (
+                          <p className="mt-2.5 rounded-lg bg-accent-soft/40 px-3 py-2 text-[12px] leading-relaxed text-muted">{ch.note}</p>
+                        )}
                         <ol className="mt-2.5 flex flex-col gap-1.5">
                           {ch.steps.map((s, si) => (
                             <li key={si} className="flex gap-2.5 text-[12.5px] leading-relaxed text-muted">
@@ -245,7 +235,7 @@ export function ChannelsPage() {
                             <Button variant="ghost" onClick={() => verify(ch.id)}><Check size={14} /> Verify</Button>
                           )}
                         </div>
-                        {configured && <p className="mt-2 text-[12px] text-partial">Saved, but the bot isn't live yet — {ch.id === "discord" ? "check the token and that Message Content Intent is ON" : ch.id === "imessage" ? "check Full Disk Access is granted" : "check the token"}, then Verify.</p>}
+                        {configured && <p className="mt-2 text-[12px] text-partial">Saved, but the bot isn't live yet — {ch.id === "discord" ? "check the token and that Message Content Intent is ON" : "check the token"}, then Verify.</p>}
                         {h?.detail && <p className="mt-1 text-[12px] text-withhold">{h.detail}</p>}
                       </>
                     )}

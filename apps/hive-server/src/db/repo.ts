@@ -214,6 +214,29 @@ export function pickIdentity(member: Member): ChannelIdentity | null {
   return listIdentities(member.id)[0] ?? null;
 }
 
+// Channels to deliver a proactive message on: the member's MOST-RECENTLY-used channel
+// and their MOST-FREQUENTLY-used channel (deduped to one when they're the same).
+// A member who lives in Telegram but last replied on web hears it in both places.
+// Derived from `turns` — no schema change. Falls back to pickIdentity() before any
+// turns exist.
+export function pickDeliveryIdentities(member: Member): ChannelIdentity[] {
+  const rows = getDb()
+    .db.prepare(
+      `SELECT channel_identity_id AS ci, COUNT(*) AS cnt, MAX(ts) AS last
+       FROM turns WHERE member_id=? AND channel_identity_id IS NOT NULL
+       GROUP BY channel_identity_id`,
+    )
+    .all(member.id) as { ci: string; cnt: number; last: number }[];
+  if (rows.length === 0) {
+    const one = pickIdentity(member);
+    return one ? [one] : [];
+  }
+  const recent = [...rows].sort((a, b) => b.last - a.last)[0]!.ci;
+  const frequent = [...rows].sort((a, b) => b.cnt - a.cnt)[0]!.ci;
+  const ids = recent === frequent ? [recent] : [recent, frequent];
+  return ids.map((i) => getIdentity(i)).filter((x): x is ChannelIdentity => !!x);
+}
+
 // ---- bees ----
 export function upsertBee(beeId: string): void {
   getDb()

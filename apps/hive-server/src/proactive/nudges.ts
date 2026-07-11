@@ -1,6 +1,6 @@
 import { id } from "@hive/shared";
 import type { Member, Nudge, NudgeKind } from "@hive/shared";
-import { getMember, pickIdentity } from "../db/repo.js";
+import { getMember, pickDeliveryIdentities } from "../db/repo.js";
 import { getProactive, getBeeSettings } from "../settings/settings.js";
 import { callRole } from "../llm/call.js";
 import { COMPOSE_SYSTEM, composeUser } from "../prompts/proactive.js";
@@ -24,7 +24,10 @@ const DAY = 86_400_000;
 // Register once: persist delivery results reported by bees.
 onNudgeResult((nudgeId, status, error) => {
   if (status === "delivered") setNudgeStatus(nudgeId, "sent", { sentAt: Date.now() });
-  else setNudgeStatus(nudgeId, "failed", { suppressReason: error ?? "delivery failed" });
+  // With multi-channel delivery a nudge is pushed to >1 bee; don't let one channel's
+  // failure overwrite another channel's success.
+  else if (getNudge(nudgeId)?.status !== "sent")
+    setNudgeStatus(nudgeId, "failed", { suppressReason: error ?? "delivery failed" });
 });
 
 // Undo/recall window: an approved nudge waits briefly before it actually goes out,
@@ -163,24 +166,29 @@ export async function deliverNudgeById(nudgeId: string): Promise<void> {
   if (!member) return;
   if (inQuietHours(member)) return; // hold; heartbeat retries via deliverQueued
 
-  const identity = pickIdentity(member);
-  if (!identity) {
+  const identities = pickDeliveryIdentities(member);
+  if (identities.length === 0) {
     setNudgeStatus(nudgeId, "failed", { suppressReason: "no channel linked" });
     return;
   }
-  const ok = pushToBee(
-    {
-      type: "nudge.deliver",
-      nudgeId,
-      memberId: member.id,
-      channelIdentityId: identity.id,
-      channel: identity.channel,
-      externalId: identity.externalId,
-      text: nudge.draft,
-    },
-    identity.beeId,
-  );
-  if (!ok) setNudgeStatus(nudgeId, "failed", { suppressReason: "bee offline" });
+  // Deliver to the member's recent + frequent channels (deduped upstream).
+  let anyOnline = false;
+  for (const identity of identities) {
+    const ok = pushToBee(
+      {
+        type: "nudge.deliver",
+        nudgeId,
+        memberId: member.id,
+        channelIdentityId: identity.id,
+        channel: identity.channel,
+        externalId: identity.externalId,
+        text: nudge.draft,
+      },
+      identity.beeId,
+    );
+    if (ok) anyOnline = true;
+  }
+  if (!anyOnline) setNudgeStatus(nudgeId, "failed", { suppressReason: "bee offline" });
   // success path: bee replies nudge.result -> onNudgeResult sets 'sent'
 }
 

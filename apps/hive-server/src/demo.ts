@@ -35,12 +35,15 @@ export async function bootstrapDemo(): Promise<void> {
     putSecret("provider:minimax", key);
     const base = process.env["HIVE_MINIMAX_BASE_URL"];
     if (base) setBaseUrl("minimax", base);
-    const model = process.env["HIVE_DEMO_MODEL"] ?? "MiniMax-M2";
+    const model = process.env["HIVE_DEMO_MODEL"] ?? "MiniMax-M3";
     for (const role of ["chat", "extraction", "social"] as ModelRole[]) {
       setModelRole(role, { provider: "minimax", modelId: model });
     }
     console.log(`[hive] demo: minimax key baked in, roles → ${model}`);
   }
+  // No embeddings role: MiniMax has no embeddings API, so retrieval uses the
+  // recency+graph path. Assign a local Ollama embeddings model in the dashboard
+  // if you ever want semantic vector RAG — no code change, no external key.
 
   const members = await seedDemo();
   console.log(`[hive] demo: ${members.length} members ready (${members.map((m) => `${m.name} ${m.code}`).join(", ")})`);

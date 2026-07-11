@@ -8,16 +8,22 @@ export interface GraphFilter {
 }
 
 // Build the react-force-graph-3d payload. Node size = degree; group = entity type.
+// ponytail: bounded to MAX_* rows — a 3D force graph can't usefully render more than a
+// few thousand nodes anyway, and this keeps the query O(cap) instead of O(whole graph).
+// Beyond the cap, explore via the member/type filters. Raise the caps if needed.
+const MAX_EDGES = 3000;
+const MAX_NODES = 3000;
 export function readGraph(filter: GraphFilter): GraphPayload {
   const { db } = getDb();
 
-  const entityRows = db
-    .prepare("SELECT id,name,type,member_id FROM entities")
-    .all() as { id: string; name: string; type: EntityType; member_id: string | null }[];
-
   let edgeSql = "SELECT * FROM edges";
   if (!filter.showInvalidated) edgeSql += " WHERE invalidated_at IS NULL";
+  edgeSql += " ORDER BY confidence DESC, created_at DESC LIMIT " + MAX_EDGES;
   const edgeRows = db.prepare(edgeSql).all() as Record<string, unknown>[];
+
+  const entityRows = db
+    .prepare("SELECT id,name,type,member_id FROM entities ORDER BY created_at DESC LIMIT ?")
+    .all(MAX_NODES) as { id: string; name: string; type: EntityType; member_id: string | null }[];
 
   const degree = new Map<string, number>();
   for (const e of edgeRows) {

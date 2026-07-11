@@ -4,7 +4,8 @@ import { logActivity } from "../activity.js";
 export type Job =
   | { kind: "extract"; memberId: string; sessionId: string }
   | { kind: "conclude"; memberId: string }
-  | { kind: "implications"; memberId: string; memoryIds: string[] };
+  | { kind: "implications"; memberId: string; memoryIds: string[] }
+  | { kind: "errand"; memberId: string; memoryIds: string[] };
 
 type Handler = (job: Job) => Promise<void>;
 const handlers = new Map<string, Handler>();

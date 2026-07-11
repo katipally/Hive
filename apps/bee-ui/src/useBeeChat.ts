@@ -69,11 +69,29 @@ export function useBeeChat(beeId: string, sessionId: string, opts?: { onPaired?:
           streamingRef.current = true;
           return [...prev, { id: counter++, role: "bee", text: m.text }];
         }
+        if (m.type === "reset") {
+          // drop the tool-call narration bubble; the clean final answer streams next
+          streamingRef.current = false;
+          setThinking(true);
+          const last = prev[prev.length - 1];
+          return last?.role === "bee" ? prev.slice(0, -1) : prev;
+        }
         if (m.type === "done") {
           streamingRef.current = false;
           setThinking(false);
+          // `done` carries the clean final text — make it authoritative so any streamed
+          // narration/artifacts are replaced by the tidy reply.
+          const finalText = (m.text ?? "").trim();
           const last = prev[prev.length - 1];
-          if (last?.role === "bee") onDoneRef.current?.(last.text);
+          if (last?.role === "bee") {
+            const text = finalText || last.text;
+            onDoneRef.current?.(text);
+            return [...prev.slice(0, -1), { ...last, text }];
+          }
+          if (finalText) {
+            onDoneRef.current?.(finalText);
+            return [...prev, { id: counter++, role: "bee", text: finalText }];
+          }
           return prev;
         }
         if (m.type === "notice") {

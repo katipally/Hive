@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Send, Hash, MessageSquare, Copy, Check, ExternalLink } from "lucide-react";
+import { Send, Hash, Copy, Check, ExternalLink } from "lucide-react";
 import { Dialog, useToast } from "@hive/ui";
 import { uidFor } from "./useBeeChat.js";
 import { API_BASE } from "./config.js";
@@ -7,15 +7,22 @@ import { API_BASE } from "./config.js";
 interface ChannelInfo {
   telegram?: { username: string };
   discord?: { inviteUrl: string };
-  imessage?: { handle: string };
 }
 
 // Ways to reach your bee, using bots the hive operator already set up. No tokens,
 // no setup — just open the bot and send your code.
 const WAYS = [
   { id: "telegram" as const, label: "Telegram", Icon: Send, verb: "Open", isLink: true, addr: (i: ChannelInfo) => (i.telegram ? `https://t.me/${i.telegram.username}` : null) },
-  { id: "imessage" as const, label: "iMessage", Icon: MessageSquare, verb: "Text", isLink: false, addr: (i: ChannelInfo) => i.imessage?.handle ?? null },
-  { id: "discord" as const, label: "Discord", Icon: Hash, verb: "Open, add the bot, then DM it", isLink: true, addr: (i: ChannelInfo) => i.discord?.inviteUrl ?? null },
+  {
+    id: "discord" as const,
+    label: "Discord",
+    Icon: Hash,
+    verb: "Open Discord",
+    isLink: true,
+    // Discord only lets a bot DM you if you already share a server with it.
+    note: "Discord only lets a bot message you if you share a server. Join the hive's Discord server, then DM the bot (search its name) and send your code. Not in the server yet? Ask whoever runs the hive for an invite.",
+    addr: (i: ChannelInfo) => i.discord?.inviteUrl ?? null,
+  },
 ];
 
 export function Channels({ open, onClose, beeId }: { open: boolean; onClose: () => void; beeId: string }) {
@@ -57,7 +64,7 @@ export function Channels({ open, onClose, beeId }: { open: boolean; onClose: () 
 
         {available.length === 0 ? (
           <div className="rounded-xl border border-border bg-surface px-4 py-5 text-center text-[13px] text-muted">
-            No other channels are set up yet. Ask whoever runs the hive to turn on Telegram, Discord, or iMessage.
+            No other channels are set up yet. Ask whoever runs the hive to turn on Telegram or Discord.
           </div>
         ) : (
           available.map((w) => (
@@ -77,6 +84,9 @@ export function Channels({ open, onClose, beeId }: { open: boolean; onClose: () 
                 )}{" "}
                 and send your code{code ? "." : " (find it at the top)."}
               </p>
+              {"note" in w && w.note && (
+                <p className="mt-1.5 rounded-lg bg-fg/[0.03] px-2.5 py-1.5 text-[12px] leading-relaxed text-faint">{w.note}</p>
+              )}
               <button
                 onClick={() => copy(w.address!, w.id)}
                 className="mt-2 flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] text-muted transition hover:bg-fg/[0.06] hover:text-fg"

@@ -1,0 +1,21 @@
+# Keeps the free-tier Render demo awake so Hive's proactive loops actually run
+# unattended. Pings /api/health on a schedule. Costs nothing and makes zero LLM
+# calls — it only keeps the process warm; token spend is still governed by the
+# event-driven salience gate + HIVE_LLM_DAILY_CAP.
+#
+# NOTE: GitHub's scheduled runs can be delayed or dropped under load, so this is a
+# best-effort backstop. For reliable warm-keep use cron-job.org (1-min granularity)
+# pointed at the same URL — see docs/hosting.md.
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # every ~10 min (best-effort; GitHub may delay)
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the demo
+        run: curl -fsS --max-time 60 https://hive-demo.onrender.com/api/health || true

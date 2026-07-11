@@ -33,6 +33,61 @@ export function sharedInterests(): SharedInterest[] {
     .sort((a, b) => b.members.length - a.members.length);
 }
 
+export interface MemberPair {
+  a: string;
+  b: string;
+  shared: string[]; // entity names both are linked to
+  score: number;
+}
+
+// Ranked people-pairs who share interests/entities — the actionable form of the raw
+// shared-entity signal (entity resolution means "Hiking"/"hiking"/typos already collapse
+// into one node, so this catches more real overlaps than exact string matching did).
+// This is the substrate the orchestrator turns into introductions.
+export function memberConnections(limit = 10): MemberPair[] {
+  const pairs = new Map<string, MemberPair>();
+  for (const s of sharedInterests()) {
+    const ms = [...s.members].sort();
+    for (let i = 0; i < ms.length; i++)
+      for (let j = i + 1; j < ms.length; j++) {
+        const key = `${ms[i]}|${ms[j]}`;
+        const e = pairs.get(key) ?? { a: ms[i]!, b: ms[j]!, shared: [], score: 0 };
+        e.shared.push(s.entity);
+        e.score = e.shared.length;
+        pairs.set(key, e);
+      }
+  }
+  return [...pairs.values()].sort((x, y) => y.score - x.score).slice(0, limit);
+}
+
+// Friend groups: connected components over the member-connection graph. Members who
+// share interests (directly or transitively) fall into one community — the hive's sense
+// of "who belongs together", useful for group-level nudges and orchestration.
+export function memberCommunities(): string[][] {
+  const adj = new Map<string, Set<string>>();
+  const add = (a: string, b: string) => (adj.get(a) ?? adj.set(a, new Set()).get(a)!).add(b);
+  for (const c of memberConnections(1000)) {
+    add(c.a, c.b);
+    add(c.b, c.a);
+  }
+  const seen = new Set<string>();
+  const groups: string[][] = [];
+  for (const start of adj.keys()) {
+    if (seen.has(start)) continue;
+    const stack = [start];
+    const grp: string[] = [];
+    while (stack.length) {
+      const n = stack.pop()!;
+      if (seen.has(n)) continue;
+      seen.add(n);
+      grp.push(n);
+      for (const m of adj.get(n) ?? []) if (!seen.has(m)) stack.push(m);
+    }
+    if (grp.length > 1) groups.push(grp);
+  }
+  return groups;
+}
+
 // A compact per-member brief for the orchestrator: name + top salient facts.
 export function memberBriefs(limitPerMember = 6): { name: string; facts: string[] }[] {
   const { db } = getDb();

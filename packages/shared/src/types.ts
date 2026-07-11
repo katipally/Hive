@@ -1,12 +1,12 @@
 // Core domain types shared across hive-server, bee, and the UIs.
 
-export type ChannelKind = "web" | "telegram" | "discord" | "imessage";
+export type ChannelKind = "web" | "telegram" | "discord";
 
 export type EntityType = "person" | "place" | "org" | "event" | "thing" | "topic";
 
 export type MemoryKind = "raw" | "abstract" | "conclusion";
 
-export type ModelRole = "chat" | "extraction" | "social" | "embeddings";
+export type ModelRole = "chat" | "extraction" | "social";
 
 export interface Member {
   id: string;
@@ -81,7 +81,7 @@ export interface Disclosure {
   createdAt: number;
 }
 
-export type NudgeKind = "event" | "heartbeat";
+export type NudgeKind = "event" | "heartbeat" | "errand";
 export type NudgeStatus =
   | "proposed"
   | "queued"
@@ -114,6 +114,7 @@ export type ActivityType =
   | "nudge"
   | "poll"
   | "heartbeat_pass"
+  | "errand"
   | "error";
 
 // ---- ask-your-network polling ----

@@ -1,6 +1,6 @@
 import type { WebSocket } from "ws";
 import { WebSocketServer } from "ws";
-import type { BeeToHive, HiveToBee } from "@hive/shared";
+import type { BeeToHive, HiveToBee, ContextBlock } from "@hive/shared";
 import { getSecret, putSecret, hasSecret, listSecretNames } from "../crypto/keystore.js";
 import { upsertBee } from "../db/repo.js";
 import { getDb } from "../db/db.js";
@@ -112,7 +112,14 @@ export function attachBeeHub(wss: WebSocketServer, version: string): void {
           break;
         }
         case "context.request": {
-          const blocks = await buildContext(msg.memberId, msg.sessionId, msg.text);
+          // Always send a response, even if retrieval throws — otherwise the bee's request
+          // hangs/times out and it answers with no memory at all (worse than degraded).
+          let blocks: ContextBlock[] = [];
+          try {
+            blocks = await buildContext(msg.memberId, msg.sessionId, msg.text);
+          } catch (e) {
+            console.error(`[hive] context.request failed: ${(e as Error).message}`);
+          }
           send(ws, { type: "context.response", reqId: msg.reqId, blocks });
           break;
         }

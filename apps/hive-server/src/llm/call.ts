@@ -1,4 +1,4 @@
-import { complete, embed as embedProvider } from "@hive/shared/llm";
+import { complete } from "@hive/shared/llm";
 import type { Message } from "@hive/shared/llm";
 import { resolveRole } from "../settings/settings.js";
 import type { ModelRole } from "@hive/shared";
@@ -22,7 +22,7 @@ function chargeBudget(): void {
 
 // Call a role's model for a single completion (used by pipeline stages).
 export async function callRole(
-  role: Exclude<ModelRole, "embeddings">,
+  role: ModelRole,
   opts: { system?: string; messages: Message[] },
 ): Promise<string> {
   chargeBudget();
@@ -42,7 +42,7 @@ export async function callRole(
 // Pass `validate` to also reject well-formed JSON of the wrong shape (a real model can
 // return valid JSON that's missing required keys) — a failed check triggers the same repair retry.
 export async function callRoleJson<T>(
-  role: Exclude<ModelRole, "embeddings">,
+  role: ModelRole,
   opts: { system?: string; messages: Message[]; validate?: (v: unknown) => boolean },
 ): Promise<T> {
   const ok = (v: T | undefined): v is T => v !== undefined && (!opts.validate || opts.validate(v));
@@ -76,22 +76,3 @@ function tryParse<T>(s: string): T | undefined {
   }
 }
 
-export async function embedTexts(texts: string[]): Promise<number[][]> {
-  if (texts.length === 0) return [];
-  const r = resolveRole("embeddings");
-  return embedProvider(r.provider, {
-    baseUrl: r.baseUrl,
-    apiKey: r.apiKey,
-    model: r.model,
-    input: texts,
-  });
-}
-
-export function embeddingsConfigured(): boolean {
-  try {
-    resolveRole("embeddings");
-    return true;
-  } catch {
-    return false;
-  }
-}

@@ -1,26 +1,13 @@
 import { getDb } from "../db/db.js";
 import { getMember } from "../db/repo.js";
-import { callRoleJson, embedTexts, embeddingsConfigured } from "../llm/call.js";
+import { callRoleJson } from "../llm/call.js";
 import { EXTRACT_SYSTEM, extractUser } from "../prompts/extract.js";
-import { upsertEntity, insertMemory, insertEdge, invalidateEdgesBySrcRel, findEntityByName } from "../graph/write.js";
-import { isDuplicateMemory, isDuplicateText } from "./resolve.js";
+import { upsertEntity, insertMemory, insertEdge, invalidateEdgesBySrcRel, findEntityByName, liveEdgeDst } from "../graph/write.js";
+import { normalizeRel, isFunctional } from "../graph/relations.js";
+import { isDuplicateMemory } from "./resolve.js";
 import { logActivity } from "../activity.js";
 import { broadcastDash } from "../ws/dash-hub.js";
 import { enqueue } from "./queue.js";
-
-// Relations where a newer fact supersedes the old (moved cities, changed jobs, etc.).
-// ponytail: heuristic functional-relation set; extend as needed.
-const FUNCTIONAL = new Set([
-  "lives_in",
-  "located_in",
-  "based_in",
-  "works_at",
-  "employed_at",
-  "studies_at",
-  "dating",
-  "married_to",
-  "birthday_on",
-]);
 
 interface Extraction {
   memories: { text: string; kind?: "raw" | "abstract"; salience?: number }[];
@@ -81,16 +68,12 @@ export async function runExtraction(memberId: string, sessionId: string): Promis
   const memberEntityId = upsertEntity(member.name, "person", memberId);
   const lastTurnId = turns[turns.length - 1]!.id;
 
-  // ---- memories (with dedup + embeddings) ----
+  // ---- memories (with lexical dedup) ----
   const mems = ex.memories ?? [];
-  const embeddings = embeddingsConfigured() && mems.length ? await safeEmbed(mems.map((m) => m.text)) : [];
   const newMemoryIds: string[] = [];
   let dupes = 0;
-  for (let i = 0; i < mems.length; i++) {
-    const m = mems[i]!;
-    const emb = embeddings[i];
-    const dup = emb ? isDuplicateMemory(memberId, emb) : isDuplicateText(memberId, m.text);
-    if (dup) {
+  for (const m of mems) {
+    if (isDuplicateMemory(memberId, m.text)) {
       dupes++;
       continue;
     }
@@ -100,7 +83,6 @@ export async function runExtraction(memberId: string, sessionId: string): Promis
       text: m.text,
       salience: clamp(m.salience ?? 0.5),
       sourceTurnId: lastTurnId,
-      embedding: emb,
     });
     newMemoryIds.push(mid);
   }
@@ -109,17 +91,28 @@ export async function runExtraction(memberId: string, sessionId: string): Promis
   // ---- entities ----
   for (const e of ex.entities ?? []) upsertEntity(e.name, e.type, null);
 
-  // ---- relations (+ functional invalidation) ----
+  // ---- relations (normalized verb + functional invalidation + contradiction detection) ----
   let edgeCount = 0;
   let invalidated = 0;
+  let contradictions = 0;
   for (const r of ex.relations ?? []) {
     if (!r.src || !r.rel || !r.dst) continue;
+    const rel = normalizeRel(r.rel); // canonical verb so paraphrases supersede correctly
     const srcId = resolveEntity(r.src, member.name, memberEntityId);
     const dstId = resolveEntity(r.dst, member.name, memberEntityId);
-    if (FUNCTIONAL.has(r.rel)) invalidated += invalidateEdgesBySrcRel(srcId, r.rel, provenanceMemory);
+    if (isFunctional(rel)) {
+      // contradiction: a live functional edge pointing at a DIFFERENT target means the
+      // fact changed (moved city, new job). Record it, then supersede the old edge.
+      const prior = liveEdgeDst(srcId, rel);
+      if (prior && prior.dstId !== dstId) {
+        contradictions++;
+        logActivity("extraction", memberId, { summary: `updated: ${r.src} ${rel.replace(/_/g, " ")} → ${r.dst} (was ${prior.dstName})` });
+      }
+      invalidated += invalidateEdgesBySrcRel(srcId, rel, provenanceMemory);
+    }
     insertEdge({
       srcEntityId: srcId,
-      rel: r.rel,
+      rel,
       dstEntityId: dstId,
       confidence: clamp(r.confidence ?? 0.8),
       validFrom: r.validFrom ?? null,
@@ -135,16 +128,20 @@ export async function runExtraction(memberId: string, sessionId: string): Promis
   tx(turns.map((t) => t.id));
 
   logActivity("extraction", memberId, {
-    summary: `+${newMemoryIds.length} memories, +${edgeCount} relations${invalidated ? `, ${invalidated} invalidated` : ""}${dupes ? `, ${dupes} deduped` : ""}`,
+    summary: `+${newMemoryIds.length} memories, +${edgeCount} relations${invalidated ? `, ${invalidated} invalidated` : ""}${contradictions ? `, ${contradictions} updated` : ""}${dupes ? `, ${dupes} deduped` : ""}`,
     memories: newMemoryIds.length,
     relations: edgeCount,
     invalidated,
+    contradictions,
     deduped: dupes,
   });
   broadcastDash({ type: "graph.dirty" });
 
-  // downstream proactive stages (wired in M7)
-  if (newMemoryIds.length) enqueue({ kind: "implications", memberId, memoryIds: newMemoryIds });
+  // downstream proactive stages (event-driven)
+  if (newMemoryIds.length) {
+    enqueue({ kind: "implications", memberId, memoryIds: newMemoryIds });
+    enqueue({ kind: "errand", memberId, memoryIds: newMemoryIds });
+  }
   maybeConclude(memberId);
 }
 
@@ -163,14 +160,6 @@ function maybeConclude(memberId: string): void {
       .get(memberId) as { c: number }
   ).c;
   if (c > 0 && c % 10 === 0) enqueue({ kind: "conclude", memberId });
-}
-
-async function safeEmbed(texts: string[]): Promise<(number[] | undefined)[]> {
-  try {
-    return await embedTexts(texts);
-  } catch {
-    return texts.map(() => undefined);
-  }
 }
 
 function clamp(n: number): number {
