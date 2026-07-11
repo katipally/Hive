@@ -7,8 +7,8 @@ to pass between friends and what should stay put.
 
 **Try the live demo, nothing to install:**
 
-- 🐝 Bee chat: **https://hive-demo.onrender.com/chat**
-- 🖥️ Hive dashboard: **https://hive-demo.onrender.com/**
+- Bee chat: **https://hive-demo.onrender.com/chat**
+- Hive dashboard: **https://hive-demo.onrender.com/**
 
 > It runs on a free host that falls asleep when idle, so the very first load can take about 50
 > seconds to wake up. After that it is quick.
@@ -17,14 +17,13 @@ to pass between friends and what should stay put.
 
 ```mermaid
 flowchart LR
-  A["🐝 Alice's bee"] --> H
-  B["🐝 Bob's bee"] --> H
-  C["🐝 Cara's bee"] --> H
-  H[["🧠 Hive brain<br/>memory + judgment"]]
-  H -. "nudges people, with care" .-> A
-  H -. .-> B
-  H -. .-> C
-  H --> D["🖥️ Dashboard<br/>watch it think"]
+  A[Alice] --> H[Hive brain]
+  B[Bob] --> H
+  C[Cara] --> H
+  H --> D[Dashboard]
+  H -.->|nudges| A
+  H -.->|nudges| B
+  H -.->|nudges| C
 ```
 
 Each person only ever talks to their own bee. The hive sits in the middle, builds a memory of
@@ -34,13 +33,13 @@ the whole group, and reaches out when it spots something worth a nudge.
 
 The demo is two sites. One is for the people in the group, one is for whoever runs it.
 
-|              | 🐝 Bee chat                | 🖥️ Hive dashboard        |
-| ------------ | -------------------------- | ------------------------- |
-| Who it is for | a member (Alice/Bob/Cara)  | the operator              |
-| What you do  | chat with your bee         | watch the hive think      |
-| Where        | `/chat`                    | `/`                       |
+|               | Bee chat                  | Hive dashboard        |
+| ------------- | ------------------------- | --------------------- |
+| Who it is for | a member (Alice/Bob/Cara) | the operator          |
+| What you do   | chat with your bee        | watch the hive think  |
+| Where         | `/chat`                   | `/`                   |
 
-### 🐝 Bee chat → `/chat`
+### Bee chat → `/chat`
 
 Where a person talks to their bee. In the demo, the top-left **Profile** picker holds the three
 people. Switch it to become Alice, Bob, or Cara and you drop straight into that person's world.
@@ -52,7 +51,7 @@ people. Switch it to become Alice, Bob, or Cara and you drop straight into that 
 
 ![Bee chat](docs/images/chat.png)
 
-### 🖥️ Hive dashboard → `/`
+### Hive dashboard → `/`
 
 The operator's window into the brain. Tabs down the left side:
 
@@ -71,13 +70,13 @@ Every message a bee receives runs down the same little assembly line:
 
 ```mermaid
 flowchart LR
-  T["chat turn"] --> E["extract facts<br/>an LLM reads it"]
-  E --> G[("knowledge graph<br/>SQLite")]
-  G --> R["recall,<br/>ground replies"]
-  G --> O["orchestrator,<br/>spot connections"]
-  O --> DA{"disclosure<br/>agent"}
-  DA -->|"safe to share"| N["nudge a person"]
-  DA -->|"private"| X["held back"]
+  T[chat turn] --> E[extract facts with an LLM]
+  E --> G[(knowledge graph in SQLite)]
+  G --> R[recall for replies]
+  G --> O[find connections]
+  O --> DA{disclosure agent}
+  DA -->|safe to share| N[nudge a person]
+  DA -->|private| X[held back]
 ```
 
 Nothing is hardcoded. On the demo, the three bees replay a few real conversations on startup,
@@ -89,9 +88,9 @@ Say Bob tells his bee he is planning a surprise party for Alice. That fact now l
 hive. Then Alice asks her bee, "are Bob and Cara up to something?"
 
 ```
- Bob's bee   ─►  hive learns "surprise party for Alice"   (private to Bob)
- Alice asks  ─►  hive runs the disclosure agent  ─►  withhold
- Alice hears ─►  "I don't have anything on that"          (secret kept ✅)
+ Bob's bee    ->  hive learns "surprise party for Alice"   (private to Bob)
+ Alice asks   ->  hive runs the disclosure agent  ->  withhold
+ Alice hears  ->  "I don't have anything on that"          (secret kept)
 ```
 
 The disclosure agent runs every time knowledge would cross between people. It can **share**,
