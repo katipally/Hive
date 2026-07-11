@@ -131,11 +131,18 @@ export function invalidateEdgesBySrcRel(
   rel: string,
   byMemoryId: string | null,
   exceptEdgeId?: string,
+  dstEntityId?: string, // when set, only invalidate the edge to this specific target
 ): number {
   const { db } = getDb();
-  const rows = db
-    .prepare("SELECT id, source_memory_id FROM edges WHERE src_entity_id=? AND rel=? AND invalidated_at IS NULL")
-    .all(srcEntityId, rel) as { id: string; source_memory_id: string | null }[];
+  const rows = (
+    dstEntityId
+      ? db
+          .prepare("SELECT id, source_memory_id FROM edges WHERE src_entity_id=? AND rel=? AND dst_entity_id=? AND invalidated_at IS NULL")
+          .all(srcEntityId, rel, dstEntityId)
+      : db
+          .prepare("SELECT id, source_memory_id FROM edges WHERE src_entity_id=? AND rel=? AND invalidated_at IS NULL")
+          .all(srcEntityId, rel)
+  ) as { id: string; source_memory_id: string | null }[];
   let n = 0;
   const now = Date.now();
   const supersededSources = new Set<string>();

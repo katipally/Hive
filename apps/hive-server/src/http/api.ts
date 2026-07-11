@@ -45,6 +45,7 @@ import { broadcastDash } from "../ws/dash-hub.js";
 import { listDisclosures, disclosuresFromMember } from "../disclosure/store.js";
 import { listNudges, setNudgeStatus, setNudgeFeedback, getNudge } from "../proactive/store.js";
 import { scheduleDelivery, undoNudge } from "../proactive/nudges.js";
+import { insertReminder, listReminders } from "../proactive/reminders.js";
 import { startPoll, cancelPoll, synthesizePoll } from "../polling/polls.js";
 import { listPollDetails } from "../polling/store.js";
 import { webSearch, readUrl } from "../tools/search.js";
@@ -69,6 +70,20 @@ export function buildApi(version: string): Hono {
       })),
     ),
   );
+  // ---- reminders (bee-authenticated): the bee's "do something later" capability ----
+  app.post("/api/reminders", async (c) => {
+    const token = c.req.header("x-bee-token");
+    const beeId = c.req.header("x-bee-id");
+    if (!token || !beeId || !beeTokenValid(beeId, token)) return c.json({ error: "unauthorized" }, 401);
+    const { memberId, text, dueIso } = await c.req.json<{ memberId: string; text: string; dueIso: string }>();
+    const due = Date.parse(dueIso ?? "");
+    if (!memberId || !text?.trim() || Number.isNaN(due)) return c.json({ error: "memberId, text, dueIso required" }, 400);
+    if (due < Date.now() - 60_000) return c.json({ error: "that time is in the past" }, 400);
+    const id = insertReminder(memberId, text.trim(), due);
+    return c.json({ ok: true, id });
+  });
+  app.get("/api/members/:id/reminders", (c) => c.json(listReminders(c.req.param("id"))));
+
   // ---- /logout: unlink one channel identity (bee-authenticated) ----
   app.post("/api/unlink", async (c) => {
     const token = c.req.header("x-bee-token");

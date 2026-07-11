@@ -10,6 +10,7 @@ import { attachBeeHub } from "./ws/bee-hub.js";
 import { attachDashHub } from "./ws/dash-hub.js";
 import { registerPipeline } from "./pipeline/register.js";
 import { startHeartbeat } from "./proactive/heartbeat.js";
+import { startReminderLoop } from "./proactive/reminders.js";
 import { bootstrapDemo } from "./demo.js";
 
 // Last-resort backstops so one poison message / rejected promise logs instead of
@@ -46,6 +47,7 @@ server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
 });
 
 startHeartbeat();
+startReminderLoop();
 
 console.log(`[hive] listening on http://localhost:${PORT}  (ws: /ws/bee, /ws/dash)`);
 console.log(`[hive] data dir: ${DATA_DIR}`);
@@ -55,7 +57,7 @@ console.log(`[hive] data dir: ${DATA_DIR}`);
 if (process.env["HIVE_DEMO"] && !process.env["MINIMAX_API_KEY"])
   console.warn("[hive] ⚠ MINIMAX_API_KEY not set — the 'social' role stays unconfigured, so proactive nudges/polls will NEVER fire.");
 if (!process.env["EXA_API_KEY"])
-  console.warn("[hive] ⚠ EXA_API_KEY not set — real-world errands and web_lookup/read_url are unavailable; the bee will say it can't look things up.");
+  console.log("[hive] web search: using the keyless provider (DuckDuckGo). Set EXA_API_KEY for higher-quality results.");
 
 // hosted demo only (HIVE_DEMO): bake key/roles, seed the scenario, kick orchestrator
 void bootstrapDemo().catch((e) => console.error("[hive] demo bootstrap failed:", e));

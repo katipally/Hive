@@ -13,7 +13,7 @@ interface Extraction {
   memories: { text: string; kind?: "raw" | "abstract"; salience?: number }[];
   entities: { name: string; type: string }[];
   relations: { src: string; rel: string; dst: string; confidence?: number; validFrom?: number | null }[];
-  invalidations: { statement: string }[];
+  invalidations: { src: string; rel: string; dst?: string | null }[];
 }
 
 export async function runExtraction(memberId: string, sessionId: string): Promise<void> {
@@ -119,6 +119,20 @@ export async function runExtraction(memberId: string, sessionId: string): Promis
       sourceMemoryId: provenanceMemory,
     });
     edgeCount++;
+  }
+
+  // ---- invalidations: retract relations the member says are no longer true ----
+  // This is the ONLY path that can retract a fact with NO replacement — e.g. a break-up
+  // with no new partner named. Without it, "I broke up with Sarah" leaves the dating edge
+  // (and its memory) live forever. We only invalidate edges to entities that already exist.
+  for (const inv of ex.invalidations ?? []) {
+    if (!inv.src || !inv.rel) continue;
+    const isMember = inv.src.trim().toLowerCase() === member.name.trim().toLowerCase();
+    const srcEnt = isMember ? { id: memberEntityId } : findEntityByName(inv.src);
+    if (!srcEnt) continue;
+    const invRel = normalizeRel(inv.rel);
+    const dstEnt = inv.dst ? findEntityByName(inv.dst) : null;
+    invalidated += invalidateEdgesBySrcRel(srcEnt.id, invRel, provenanceMemory, undefined, dstEnt?.id);
   }
 
   // mark turns done

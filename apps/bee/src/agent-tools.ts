@@ -111,6 +111,35 @@ export function makeBeeTools(deps: {
     },
     {
       spec: {
+        name: "set_reminder",
+        description:
+          "Set a reminder for the member at a future time. Use when they ask to be reminded ('remind me to call mom tomorrow at 6pm', 'ping me in 2 hours'). Compute due_iso from the current date/time given in your instructions. I'll message them when it's due.",
+        parameters: {
+          type: "object",
+          properties: {
+            note: { type: "string", description: "what to remind them about, in their own framing" },
+            due_iso: { type: "string", description: "ISO 8601 datetime (e.g. 2026-07-12T18:00:00Z) computed from the current time" },
+          },
+          required: ["note", "due_iso"],
+        },
+      },
+      run: async (args) => {
+        const note = String(args.note ?? "").trim();
+        const due = String(args.due_iso ?? "").trim();
+        if (!note || !due) return "I need both what to remind you about and when.";
+        const r = (await hive(`/api/reminders`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ memberId, text: note, dueIso: due }),
+        })
+          .then((x) => x.json())
+          .catch(() => null)) as { ok?: boolean; error?: string } | null;
+        if (!r?.ok) return `I couldn't set that reminder${r?.error ? `: ${r.error}` : ""}.`;
+        return `Done — I'll remind you: "${note}".`;
+      },
+    },
+    {
+      spec: {
         name: "web_lookup",
         description:
           "Search the web for current, real-world information the hive doesn't already know — to help the member find or check something (a product, a place, an event, availability, a current fact). Use ONLY for things outside the member's own history/relationships (use `recall` for those). Returns real results; if it says search isn't available, tell the member you can't look that up right now — NEVER invent an answer.",

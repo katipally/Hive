@@ -7,6 +7,18 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at INTEGER NOT NULL
 );
 
+-- Reminders the member asked the bee to set — the bee's one real "do something later"
+-- capability. The heartbeat delivers them when due.
+CREATE TABLE IF NOT EXISTS reminders (
+  id TEXT PRIMARY KEY,
+  member_id TEXT NOT NULL REFERENCES members(id),
+  text TEXT NOT NULL,
+  due_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  delivered_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(due_at) WHERE delivered_at IS NULL;
+
 -- Runtime state that must survive a restart / Render cold-start: rate-limit windows,
 -- last-run timestamps. Previously module-level variables that reset to 0 every boot
 -- (making caps ineffective and re-firing the orchestrator on each start). Separate from

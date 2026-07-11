@@ -8,7 +8,7 @@ JSON shape:
   "memories": [{"text": "concise fact in third person about the member", "kind": "raw"|"abstract", "salience": 0.0-1.0}],
   "entities": [{"name": "Proper Name", "type": "person"|"place"|"org"|"event"|"thing"|"topic"}],
   "relations": [{"src": "EntityName or the member's name", "rel": "snake_case_relation", "dst": "EntityName", "confidence": 0.0-1.0, "validFrom": epoch_ms_or_null}],
-  "invalidations": [{"statement": "what is no longer true, in plain words"}]
+  "invalidations": [{"src": "EntityName or the member's name", "rel": "snake_case_relation", "dst": "EntityName or null"}]
 }
 
 Rules:
@@ -27,7 +27,7 @@ Rules:
   * a named person → person                            * a dated happening (a wedding, a concert) → event
   * a hobby, activity, sport, cuisine, field, or subject (hiking, photography, cooking, ramen) → topic
   * only a concrete physical object → thing
-- Put a relation in "invalidations" when the member corrects/updates a prior fact (e.g. moved cities, broke up). Describe the OLD fact that is now false.
+- Put a relation in "invalidations" when the member says a prior fact is NO LONGER true (broke up, quit a job, sold something, no longer likes X). Give the "src"+"rel" (and "dst" if a specific target, else null) of the relation to retract — e.g. a break-up with no new partner → {"src":"<member>","rel":"dating","dst":null}. This retracts the old edge even when there's no replacement.
 - salience: 0.9 = identity-defining/long-term, 0.5 = normal, 0.2 = minor.
 - If the member only asked questions or said nothing factual, return empty arrays.`;
 

@@ -115,6 +115,7 @@ export type ActivityType =
   | "poll"
   | "heartbeat_pass"
   | "errand"
+  | "reminder"
   | "error";
 
 // ---- ask-your-network polling ----

@@ -58,6 +58,28 @@ const SYNONYMS: Record<string, string> = {
   knows: "knows",
   friend_of: "knows",
   friends_with: "knows",
+  // dislikes (non-functional)
+  dislikes: "dislikes",
+  hates: "dislikes",
+  not_into: "dislikes",
+  // family (functional-ish; a person has one set, but we don't auto-supersede these)
+  sibling_of: "sibling_of",
+  brother_of: "sibling_of",
+  sister_of: "sibling_of",
+  parent_of: "parent_of",
+  mother_of: "parent_of",
+  father_of: "parent_of",
+  child_of: "child_of",
+  son_of: "child_of",
+  daughter_of: "child_of",
+  // skills / affiliations (non-functional)
+  plays: "plays",
+  practices: "plays",
+  speaks: "speaks",
+  member_of: "member_of",
+  volunteers_at: "member_of",
+  manages: "manages",
+  allergic_to: "allergic_to",
 };
 
 // Relations where a newer fact supersedes the old (moved cities, changed jobs, etc.).

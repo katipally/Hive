@@ -67,7 +67,8 @@ the demo doesn't need a paid disk.
 | `HIVE_LLM_DAILY_CAP` | Global daily LLM-call cap protecting the shared key | `300` |
 | `HIVE_SALIENCE_MIN` | Min memory salience to trigger a proactive-nudge LLM call | `0.6` |
 | `HIVE_MINIMAX_BASE_URL` | Override for MiniMax's CN endpoint | `api.minimax.io/anthropic` |
-| `EXA_API_KEY` | Exa key enabling the `web_lookup` errand tool. Off if unset. | — |
+| `EXA_API_KEY` | Optional. Upgrades web search/reading to Exa; without it, search is keyless (DuckDuckGo). | — |
+| `HIVE_SEARXNG_URL` | Optional keyless search fallback — point at a SearXNG instance. | — |
 | `HIVE_SEARCH_DAILY_CAP` | Daily cap on web searches | `50` |
 | `PORT` | Public port (injected by the host) | `8080` local |
 
