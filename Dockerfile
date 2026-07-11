@@ -22,8 +22,14 @@ RUN pnpm -C apps/hive-dash build \
  && cp -r apps/hive-dash/dist/. /srv/dash/ \
  && cp -r apps/bee-ui/dist/. /srv/chat/
 
-# Caddy binary (just the static binary, no apt)
-COPY --from=caddy:2 /usr/bin/caddy /usr/bin/caddy
+# Caddy: download the raw static binary. (The official caddy image sets file
+# capabilities on its binary, which Render's sandboxed runtime refuses to exec
+# — "Operation not permitted"/status 126. A plain download carries no caps, and
+# we bind $PORT rather than a privileged port, so none are needed.)
+ARG CADDY_VERSION=2.11.4
+RUN curl -fsSL "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz" \
+      | tar -xz -C /usr/bin caddy \
+ && chmod +x /usr/bin/caddy
 COPY docker/Caddyfile /etc/caddy/Caddyfile
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
