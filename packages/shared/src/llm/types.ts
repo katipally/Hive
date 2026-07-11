@@ -60,6 +60,9 @@ export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }
   | { type: "tool_call"; call: ToolCall }
+  // mid-stream provider failure (e.g. 429/529) emitted in-band on a 200 SSE stream —
+  // consumers MUST handle it, or a provider outage looks like a silent empty reply.
+  | { type: "error"; error: string }
   | { type: "done"; usage?: Usage };
 
 export interface ChatRequest {
@@ -76,10 +79,3 @@ export interface ChatRequest {
 }
 
 export type StreamFn = (req: ChatRequest) => AsyncGenerator<StreamEvent>;
-
-export interface EmbedRequest {
-  baseUrl: string;
-  apiKey?: string;
-  model: string;
-  input: string[];
-}

@@ -35,15 +35,18 @@ export async function bootstrapDemo(): Promise<void> {
     putSecret("provider:minimax", key);
     const base = process.env["HIVE_MINIMAX_BASE_URL"];
     if (base) setBaseUrl("minimax", base);
-    const model = process.env["HIVE_DEMO_MODEL"] ?? "MiniMax-M3";
+    const model = process.env["HIVE_DEMO_MODEL"] ?? "MiniMax-M2"; // match render.yaml default
     for (const role of ["chat", "extraction", "social"] as ModelRole[]) {
       setModelRole(role, { provider: "minimax", modelId: model });
     }
     console.log(`[hive] demo: minimax key baked in, roles → ${model}`);
   }
-  // No embeddings role: MiniMax has no embeddings API, so retrieval uses the
-  // recency+graph path. Assign a local Ollama embeddings model in the dashboard
-  // if you ever want semantic vector RAG — no code change, no external key.
+  // DATA-4: on Render's free/ephemeral disk the encryption key (and thus any secret not
+  // re-baked from env) is regenerated each boot, so dashboard-entered API keys don't
+  // survive a restart. The demo re-bakes MINIMAX from env above, so the core flow is fine.
+  console.warn("[hive] note: on an ephemeral disk, secrets entered in the dashboard reset on restart — set them via env for persistence.");
+  // Retrieval is embedding-free (BM25/FTS5 + graph traversal) — there is no vector RAG
+  // path, so no embeddings role is needed.
 
   const members = await seedDemo();
   console.log(`[hive] demo: ${members.length} members ready (${members.map((m) => `${m.name} ${m.code}`).join(", ")})`);
@@ -51,6 +54,7 @@ export async function bootstrapDemo(): Promise<void> {
   // Give the bees time to replay conversations and the pipeline to extract them,
   // then surface a proactive connection/disclosure. The heartbeat keeps it going.
   if (roleConfigured("social")) {
-    setTimeout(() => void runOrchestrator().catch(() => {}), 75_000).unref?.();
+    const delayMs = Number(process.env["HIVE_DEMO_ORCHESTRATOR_DELAY_MS"] ?? 75_000);
+    setTimeout(() => void runOrchestrator().catch(() => {}), delayMs).unref?.();
   }
 }

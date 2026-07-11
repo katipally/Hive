@@ -118,7 +118,9 @@ export type ActivityType =
   | "error";
 
 // ---- ask-your-network polling ----
-export type PollStatus = "collecting" | "synthesizing" | "done" | "cancelled";
+// expired = closed with too few answers to stay anonymous; failed = synthesis gave up.
+// Both are terminal, so a stuck poll can't re-synthesize forever.
+export type PollStatus = "collecting" | "synthesizing" | "done" | "cancelled" | "expired" | "failed";
 
 export interface Poll {
   id: string;

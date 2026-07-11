@@ -112,14 +112,20 @@ export function memberIdentityIds(memberId: string): string[] {
 }
 
 // ---- pairing codes ----
-export function createPairingCode(memberId: string, ttlMs = 1000 * 60 * 60 * 24 * 30): string {
-  // reuse an existing live code if present
-  const existing = getDb()
+// Read-only: the member's current live pairing code, or null. Use this for reads (e.g.
+// the members list) so a GET never mints a row.
+export function activePairingCode(memberId: string): string | null {
+  const r = getDb()
     .db.prepare(
       "SELECT code FROM pairing_codes WHERE member_id=? AND revoked_at IS NULL AND expires_at>? ORDER BY created_at DESC LIMIT 1",
     )
     .get(memberId, Date.now()) as { code: string } | undefined;
-  if (existing) return existing.code;
+  return r?.code ?? null;
+}
+
+export function createPairingCode(memberId: string, ttlMs = 1000 * 60 * 60 * 24 * 30): string {
+  const existing = activePairingCode(memberId); // reuse an existing live code if present
+  if (existing) return existing;
   const code = pairingCode();
   const now = Date.now();
   getDb()
@@ -187,6 +193,19 @@ export function linkIdentity(
   const m = getMember(memberId);
   if (m && !m.preferredChannelIdentityId) updateMember(memberId, { preferredChannelIdentityId: ci.id });
   return ci;
+}
+
+// Unlink a single channel identity (the /logout flow) — removes just this channel's
+// binding; the member's memory and other channels are untouched. Clears the preferred
+// pointer if it was this one so the member can still be reached elsewhere.
+export function unlinkIdentity(channel: ChannelKind, externalId: string): { memberId: string; channelIdentityId: string } | null {
+  const ci = findIdentity(channel, externalId);
+  if (!ci) return null;
+  const { db } = getDb();
+  const m = getMember(ci.memberId);
+  if (m?.preferredChannelIdentityId === ci.id) updateMember(ci.memberId, { preferredChannelIdentityId: null });
+  db.prepare("DELETE FROM channel_identities WHERE id=?").run(ci.id);
+  return { memberId: ci.memberId, channelIdentityId: ci.id };
 }
 
 export function listIdentities(memberId: string): ChannelIdentity[] {

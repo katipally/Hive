@@ -99,7 +99,7 @@ export function ChannelsPage() {
         clearInterval(pollRef.current!);
         pollRef.current = null;
         setVerifying(null);
-        if (!h[channel]?.running) toast("Not connected yet — check the token / Message Content intent, then Verify again", "error");
+        if (!h[channel]?.running) toast("Not live yet — check the token / Message Content intent, then press Check status", "error");
       }
     }, 1500);
   }
@@ -215,8 +215,18 @@ export function ChannelsPage() {
                                 onChange={(e) => setTokens((t) => ({ ...t, [ch.id]: e.target.value }))}
                                 onKeyDown={(e) => { if (e.key === "Enter" && tokens[ch.id]?.trim()) connect(ch.id, { botToken: tokens[ch.id]!.trim() }, ch.label); }}
                               />
-                              <Button variant="primary" disabled={busy === ch.id || verifying === ch.id || !tokens[ch.id]?.trim()} onClick={() => connect(ch.id, { botToken: tokens[ch.id]!.trim() }, ch.label)}>
-                                {verifying === ch.id ? <><Loader2 size={14} className="animate-spin" /> verifying…</> : <><Check size={14} /> Connect</>}
+                              <Button
+                                variant="primary"
+                                disabled={busy === ch.id || verifying === ch.id || (!tokens[ch.id]?.trim() && !configured)}
+                                onClick={() => (tokens[ch.id]?.trim() ? connect(ch.id, { botToken: tokens[ch.id]!.trim() }, ch.label) : verify(ch.id))}
+                              >
+                                {verifying === ch.id ? (
+                                  <><Loader2 size={14} className="animate-spin" /> checking…</>
+                                ) : tokens[ch.id]?.trim() ? (
+                                  <><Check size={14} /> Connect</>
+                                ) : (
+                                  <><Check size={14} /> Check status</>
+                                )}
                               </Button>
                             </>
                           ) : (
@@ -231,11 +241,8 @@ export function ChannelsPage() {
                               </Button>
                             </>
                           )}
-                          {configured && !verifying && (
-                            <Button variant="ghost" onClick={() => verify(ch.id)}><Check size={14} /> Verify</Button>
-                          )}
                         </div>
-                        {configured && <p className="mt-2 text-[12px] text-partial">Saved, but the bot isn't live yet — {ch.id === "discord" ? "check the token and that Message Content Intent is ON" : "check the token"}, then Verify.</p>}
+                        {configured && <p className="mt-2 text-[12px] text-partial">Saved, but the bot isn't live yet — {ch.id === "discord" ? "check the token and that Message Content Intent is ON" : "check the token"}, then press Check status.</p>}
                         {h?.detail && <p className="mt-1 text-[12px] text-withhold">{h.detail}</p>}
                       </>
                     )}

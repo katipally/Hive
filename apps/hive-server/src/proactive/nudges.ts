@@ -8,6 +8,7 @@ import { decideDisclosure } from "../disclosure/agent.js";
 import { insertNudge, setNudgeStatus, getNudge, recentSentNudges, lastSentAt, negativeFeedbackRatio } from "./store.js";
 import { deliverNudge as pushToBee, onNudgeResult } from "../ws/bee-hub.js";
 import { logActivity } from "../activity.js";
+import { getDb } from "../db/db.js";
 
 export interface Candidate {
   recipientMemberId: string;
@@ -116,7 +117,9 @@ export async function proposeCandidate(cand: Candidate): Promise<void> {
     try {
       draft = (await callRole("social", {
         system: COMPOSE_SYSTEM,
-        messages: [{ role: "user", content: composeUser(recipient.name, shareable, cand.reason) }],
+        // compose from `shareable` ONLY (the gate's redacted text for cross-member
+        // nudges) — never the raw reason, or the withheld fact can leak back out.
+        messages: [{ role: "user", content: composeUser(recipient.name, shareable) }],
       })).trim();
     } catch (e) {
       suppress(`compose failed: ${(e as Error).message}`);
@@ -188,13 +191,19 @@ export async function deliverNudgeById(nudgeId: string): Promise<void> {
     );
     if (ok) anyOnline = true;
   }
-  if (!anyOnline) setNudgeStatus(nudgeId, "failed", { suppressReason: "bee offline" });
-  // success path: bee replies nudge.result -> onNudgeResult sets 'sent'
+  if (!anyOnline) {
+    setNudgeStatus(nudgeId, "failed", { suppressReason: "bee offline" });
+  } else {
+    // Optimistic (PROA-1): mark 'sent' the moment we push to a live bee, so deliverQueued
+    // (which re-pushes status='queued' rows) stops re-delivering every tick while we wait
+    // for the bee's ack. A 'delivered' ack just confirms; there's no duplicate burst.
+    setNudgeStatus(nudgeId, "sent", { sentAt: Date.now() });
+  }
 }
 
 // Deliver any queued nudges now outside quiet hours (called by heartbeat).
 export function deliverQueued(): void {
-  const { db } = getDbLazy();
+  const { db } = getDb();
   const rows = db.prepare("SELECT id FROM nudges WHERE status='queued'").all() as { id: string }[];
   for (const r of rows) if (!pendingUndo.has(r.id)) void deliverNudgeById(r.id); // don't jump the undo window
 }
@@ -202,7 +211,14 @@ export function deliverQueued(): void {
 export function inQuietHours(member: Member): boolean {
   if (!member.quietHoursStart || !member.quietHoursEnd) return false;
   const now = new Date();
-  const hhmm = now.toLocaleTimeString("en-GB", { timeZone: member.timezone, hour: "2-digit", minute: "2-digit", hour12: false });
+  let hhmm: string;
+  try {
+    hhmm = now.toLocaleTimeString("en-GB", { timeZone: member.timezone, hour: "2-digit", minute: "2-digit", hour12: false });
+  } catch {
+    // Invalid IANA timezone would throw RangeError and (called outside the per-member
+    // try) kill the whole heartbeat tick. Fall back to UTC instead of crashing.
+    hhmm = now.toLocaleTimeString("en-GB", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", hour12: false });
+  }
   const cur = toMin(hhmm);
   const s = toMin(member.quietHoursStart);
   const e = toMin(member.quietHoursEnd);
@@ -211,10 +227,4 @@ export function inQuietHours(member: Member): boolean {
 function toMin(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
   return (h ?? 0) * 60 + (m ?? 0);
-}
-
-// avoid import cycle at module load
-import { getDb } from "../db/db.js";
-function getDbLazy() {
-  return getDb();
 }

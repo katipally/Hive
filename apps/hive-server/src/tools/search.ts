@@ -1,4 +1,5 @@
 import { getSecret } from "../crypto/keystore.js";
+import { getKVNum, setKVNum } from "../db/kv.js";
 
 // Real-world web search via Exa, shared by the /api/tools/web-search endpoint (bee
 // `web_lookup` tool) and the proactive errand runner — so the search + cap logic
@@ -15,11 +16,22 @@ export interface SearchResponse {
   error?: string;
 }
 
-// ponytail: in-memory daily counter, resets on restart — a soft backstop on the
-// shared Exa key, same pattern as the LLM day-cap.
-let windowStart = Date.now();
-let count = 0;
+// Daily counter persisted in the DB (survives restart) — a soft backstop on the shared
+// Exa key, same pattern as the LLM day-cap. Returns false when the cap is hit.
 const CAP = Number(process.env["HIVE_SEARCH_DAILY_CAP"] ?? 50);
+function chargeSearch(): boolean {
+  const now = Date.now();
+  let windowStart = getKVNum("search:capWindowStart") ?? now;
+  let count = getKVNum("search:capCount") ?? 0;
+  if (now - windowStart > 86_400_000) {
+    windowStart = now;
+    count = 0;
+  }
+  if (count >= CAP) return false;
+  setKVNum("search:capWindowStart", windowStart);
+  setKVNum("search:capCount", count + 1);
+  return true;
+}
 
 export async function webSearch(query: string): Promise<SearchResponse> {
   const q = query.trim();
@@ -27,13 +39,7 @@ export async function webSearch(query: string): Promise<SearchResponse> {
   const key = getSecret("provider:exa") ?? process.env["EXA_API_KEY"];
   if (!key) return { configured: false, results: [] };
 
-  const now = Date.now();
-  if (now - windowStart > 86_400_000) {
-    windowStart = now;
-    count = 0;
-  }
-  if (count >= CAP) return { configured: true, results: [], error: "search daily limit reached" };
-  count++;
+  if (!chargeSearch()) return { configured: true, results: [], error: "search daily limit reached" };
 
   try {
     const r = await fetch("https://api.exa.ai/search", {
@@ -70,13 +76,7 @@ export async function readUrl(url: string): Promise<{ configured: boolean; page?
   const key = getSecret("provider:exa") ?? process.env["EXA_API_KEY"];
   if (!key) return { configured: false };
 
-  const now = Date.now();
-  if (now - windowStart > 86_400_000) {
-    windowStart = now;
-    count = 0;
-  }
-  if (count >= CAP) return { configured: true, error: "search daily limit reached" };
-  count++;
+  if (!chargeSearch()) return { configured: true, error: "search daily limit reached" };
 
   try {
     const r = await fetch("https://api.exa.ai/contents", {

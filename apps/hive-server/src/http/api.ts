@@ -7,6 +7,8 @@ import {
   getMember,
   updateMember,
   createPairingCode,
+  activePairingCode,
+  unlinkIdentity,
   listIdentities,
   deleteMember,
 } from "../db/repo.js";
@@ -41,7 +43,7 @@ import { sendDigest } from "../proactive/digest.js";
 import { getDb } from "../db/db.js";
 import { broadcastDash } from "../ws/dash-hub.js";
 import { listDisclosures, disclosuresFromMember } from "../disclosure/store.js";
-import { listNudges, setNudgeStatus, setNudgeFeedback } from "../proactive/store.js";
+import { listNudges, setNudgeStatus, setNudgeFeedback, getNudge } from "../proactive/store.js";
 import { scheduleDelivery, undoNudge } from "../proactive/nudges.js";
 import { startPoll, cancelPoll, synthesizePoll } from "../polling/polls.js";
 import { listPollDetails } from "../polling/store.js";
@@ -59,7 +61,7 @@ export function buildApi(version: string): Hono {
     c.json(
       listMembers().map((m) => ({
         ...m,
-        code: createPairingCode(m.id),
+        code: activePairingCode(m.id), // read-only: a GET must not mint pairing rows (DATA-5)
         identities: listIdentities(m.id).map((ci) => ({
           ...ci,
           beeOnline: ci.beeId ? beeOnline(ci.beeId) : false,
@@ -67,6 +69,17 @@ export function buildApi(version: string): Hono {
       })),
     ),
   );
+  // ---- /logout: unlink one channel identity (bee-authenticated) ----
+  app.post("/api/unlink", async (c) => {
+    const token = c.req.header("x-bee-token");
+    const beeId = c.req.header("x-bee-id");
+    if (!token || !beeId || !beeTokenValid(beeId, token)) return c.json({ error: "unauthorized" }, 401);
+    const { channel, externalId } = await c.req.json<{ channel: string; externalId: string }>();
+    if (!channel || !externalId) return c.json({ error: "channel + externalId required" }, 400);
+    const r = unlinkIdentity(channel as never, externalId);
+    if (r) broadcastDash({ type: "graph.dirty" });
+    return c.json({ ok: !!r });
+  });
   app.post("/api/members", async (c) => {
     const { name, timezone } = await c.req.json<{ name: string; timezone?: string }>();
     if (!name?.trim()) return c.json({ error: "name required" }, 400);
@@ -287,11 +300,18 @@ export function buildApi(version: string): Hono {
   });
 
   // ---- member transparency ----
+  // Raw memories are the most sensitive read in the system. Gate behind the same bee
+  // token as the LLM proxy (the only legitimate caller is a member's own bee), so the
+  // public URL can't dump anyone's private memories (PRV-2). The dashboard doesn't use
+  // this endpoint; it reads the graph instead.
   app.get("/api/members/:id/memories", (c) => {
+    const token = c.req.header("x-bee-token");
+    const beeId = c.req.header("x-bee-id");
+    if (!token || !beeId || !beeTokenValid(beeId, token)) return c.json({ error: "unauthorized" }, 401);
     const limit = Math.min(Number(c.req.query("limit") ?? 100), 500);
     const offset = Number(c.req.query("offset") ?? 0);
     const rows = getDb()
-      .db.prepare("SELECT id,kind,text,salience,created_at FROM memories WHERE member_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?")
+      .db.prepare("SELECT id,kind,text,salience,created_at FROM memories WHERE member_id=? AND superseded_by IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?")
       .all(c.req.param("id"), limit, offset);
     return c.json(rows);
   });
@@ -360,6 +380,9 @@ export function buildApi(version: string): Hono {
     const action = c.req.param("action");
     const nid = c.req.param("id");
     if (action === "approve") {
+      // Only a still-proposed nudge can be approved (PROA-8) — otherwise a repeated
+      // click re-queues and re-delivers one that already went out.
+      if (getNudge(nid)?.status !== "proposed") return c.json({ error: "not awaiting approval" }, 409);
       setNudgeStatus(nid, "queued");
       scheduleDelivery(nid); // holds for the undo window, then sends
     } else if (action === "undo") {

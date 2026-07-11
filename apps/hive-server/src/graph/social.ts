@@ -95,7 +95,7 @@ export function memberBriefs(limitPerMember = 6): { name: string; facts: string[
   return members.map((m) => {
     const facts = (
       db
-        .prepare("SELECT text FROM memories WHERE member_id=? ORDER BY salience DESC, created_at DESC LIMIT ?")
+        .prepare("SELECT text FROM memories WHERE member_id=? AND superseded_by IS NULL ORDER BY salience DESC, created_at DESC LIMIT ?")
         .all(m.id, limitPerMember) as { text: string }[]
     ).map((r) => r.text);
     return { name: m.name, facts };

@@ -11,15 +11,14 @@ import { closeDuePolls } from "../polling/polls.js";
 import { logActivity, pruneActivity } from "../activity.js";
 import { pruneDisclosures } from "../disclosure/store.js";
 import { roleConfigured } from "../settings/settings.js";
+import { getKVNum, setKVNum } from "../db/kv.js";
 
-let lastOrchestrator = 0;
 let started = false;
 let running = false;
-// per-member weekly digest gate (in-memory). The digest's 7-day topic dedup is the
-// real backstop; this just avoids composing a draft we'd only throw away.
-// ponytail: in-memory, resets on restart — worst case one extra (deduped) digest per boot.
+// Weekly digest gate. The digest's own 7-day topic dedup is the real backstop; this just
+// avoids composing a draft we'd throw away. Persisted (like lastOrchestrator) so a restart
+// doesn't re-fire it. Keys: proactive:lastOrchestrator, proactive:lastDigest:<memberId>.
 const WEEK_MS = 7 * 86_400_000;
-const lastDigest = new Map<string, number>();
 
 // Self-scheduling so the interval reflects settings changes without a restart,
 // and re-entrancy guarded so a slow tick never overlaps the next.
@@ -33,6 +32,10 @@ export function startHeartbeat(): void {
         running = true;
         try {
           await runHeartbeatTick();
+        } catch (e) {
+          // A throw here (without this catch) would escape the async callback and stop
+          // the self-scheduling loop below from ever running again → heartbeat dies.
+          console.error("[hive] heartbeat tick failed:", (e as Error).message);
         } finally {
           running = false;
         }
@@ -63,8 +66,10 @@ export async function runHeartbeatTick(): Promise<void> {
   const p = getProactive();
 
   // group orchestration — the social layer. Run at most once per min-gap window.
+  // Persisted (PROA-10) so a restart doesn't re-fire the orchestrator on the first tick.
+  const lastOrchestrator = getKVNum("proactive:lastOrchestrator") ?? 0;
   if (Date.now() - lastOrchestrator > p.heartbeatMinGapHours * 3_600_000) {
-    lastOrchestrator = Date.now();
+    setKVNum("proactive:lastOrchestrator", Date.now());
     await runOrchestrator();
   }
   const { db } = getDb();
@@ -76,7 +81,7 @@ export async function runHeartbeatTick(): Promise<void> {
 
     const slice = (
       db
-        .prepare("SELECT text FROM memories WHERE member_id=? ORDER BY salience DESC, created_at DESC LIMIT 10")
+        .prepare("SELECT text FROM memories WHERE member_id=? AND superseded_by IS NULL ORDER BY salience DESC, created_at DESC LIMIT 10")
         .all(member.id) as { text: string }[]
     ).map((r) => r.text);
     if (slice.length === 0) {
@@ -108,8 +113,9 @@ export async function runHeartbeatTick(): Promise<void> {
     }
 
     // weekly "here's your week" digest — self-addressed nudge, gated to once per 7 days.
-    if (Date.now() - (lastDigest.get(member.id) ?? 0) > WEEK_MS) {
-      lastDigest.set(member.id, Date.now());
+    const digestKey = `proactive:lastDigest:${member.id}`;
+    if (Date.now() - (getKVNum(digestKey) ?? 0) > WEEK_MS) {
+      setKVNum(digestKey, Date.now());
       await sendDigest(member.id).catch(() => {});
     }
     touchHeartbeat(member.id);

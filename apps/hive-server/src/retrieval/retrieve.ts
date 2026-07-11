@@ -24,7 +24,7 @@ export async function buildContext(memberId: string, _sessionId: string, text: s
   let hits: Mem[] = lexicalSearch(text, MAX_HITS).map((h) => ({ id: h.memoryId, memberId: h.memberId, text: h.text }));
   if (hits.length === 0) {
     hits = db
-      .prepare("SELECT id,member_id as memberId,text FROM memories WHERE member_id=? ORDER BY created_at DESC LIMIT 6")
+      .prepare("SELECT id,member_id as memberId,text FROM memories WHERE member_id=? AND superseded_by IS NULL ORDER BY created_at DESC LIMIT 6")
       .all(memberId) as Mem[];
   }
 

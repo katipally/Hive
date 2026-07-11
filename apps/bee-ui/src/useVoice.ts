@@ -8,6 +8,23 @@ import type { BeePhase } from "./Orb.js";
 const SR: any = typeof window !== "undefined" ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) : null;
 const hasSynth = typeof window !== "undefined" && "speechSynthesis" in window;
 
+// Markdown reads badly aloud ("star star bold star star", full URLs spelled out), so
+// flatten to speech-friendly plain text before TTS (CH-5).
+function plainForSpeech(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, " ") // code blocks aren't speakable
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // link → its text, not the URL
+    .replace(/https?:\/\/\S+/g, "link")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function useVoice(opts: {
   send: (text: string) => boolean;
   setOnDone: (fn: ((text: string) => void) | null) => void;
@@ -85,10 +102,11 @@ export function useVoice(opts: {
   }, []);
 
   const speak = useCallback((text: string) => {
-    if (!hasSynth || !text) { setPhase("listening"); startRecog(); return; }
+    const spoken = plainForSpeech(text);
+    if (!hasSynth || !spoken) { setPhase("listening"); startRecog(); return; }
     try {
       window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
+      const u = new SpeechSynthesisUtterance(spoken);
       u.lang = navigator.language || "en-US";
       u.onstart = () => setPhase("speaking");
       u.onboundary = () => { agentLvlRef.current = 0.28; };

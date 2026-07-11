@@ -5,6 +5,8 @@ import { COMPOSE_ASK_SYSTEM, composeAskUser, SYNTHESIZE_SYSTEM, synthesizeUser }
 import { deliverNudge as pushToBee, onNudgeResult } from "../ws/bee-hub.js";
 import { onUserTurn } from "../ingest/ingest.js";
 import { logActivity } from "../activity.js";
+import { getBeeSettings } from "../settings/settings.js";
+import { inQuietHours } from "../proactive/nudges.js";
 import {
   insertPoll,
   insertAsk,
@@ -19,6 +21,12 @@ import {
 } from "./store.js";
 
 const DEFAULT_TTL = 48 * 3_600_000; // 48h to collect
+
+// Anonymity floor: never synthesize (and thus surface) fewer than this many answers,
+// or the initiator could attribute a lone reply. Default 2 keeps the small demo group
+// working (3 members → 2 pollable friends) while still blocking single-answer synthesis;
+// raise it for larger groups where stronger anonymity is warranted.
+const MIN_POLL_RESPONDENTS = Math.max(2, Number(process.env["HIVE_POLL_MIN_RESPONDENTS"] ?? 2));
 
 // Bee delivery of poll questions/results reuses the nudge wire. Ask ids are
 // prefixed "pask" so we can mark them delivered when the bee confirms.
@@ -47,9 +55,16 @@ export async function startPoll(opts: {
     closesAt: Date.now() + (opts.ttlMs ?? DEFAULT_TTL),
   });
 
-  // audience: everyone except the initiator, who hasn't opted out and is reachable
+  // audience: everyone except the initiator — reachable, not opted out, and (PROA-7)
+  // subject to the same governance as nudges: proactivity=off mutes them, and we don't
+  // ping people during their quiet hours. Polls are no longer an ungoverned channel.
   const audience = listMembers().filter(
-    (m) => m.id !== opts.initiatorMemberId && !m.optOutOfPolling && pickIdentity(m) !== null,
+    (m) =>
+      m.id !== opts.initiatorMemberId &&
+      !m.optOutOfPolling &&
+      getBeeSettings(m.id).proactivity !== "off" &&
+      !inQuietHours(m) &&
+      pickIdentity(m) !== null,
   );
 
   let asked = 0;
@@ -118,12 +133,29 @@ export function capturePollResponse(memberId: string, text: string): void {
 // Synthesize consensus from the answers gathered and deliver it to the initiator.
 export async function synthesizePoll(pollId: string): Promise<void> {
   const poll = getPoll(pollId);
-  if (!poll || poll.status === "done" || poll.status === "cancelled") return;
-  setPollStatus(pollId, "synthesizing");
+  // Only a still-collecting poll may enter synthesis. This is the re-entrancy guard
+  // (PROA-5): the moment we flip to "synthesizing" below, any concurrent caller —
+  // another tick, the manual endpoint, a racing answer — sees a non-collecting status
+  // here and bails, so we never double-synthesize or double-deliver. The check-and-set
+  // is atomic because better-sqlite3 is synchronous (no await between them).
+  if (!poll || poll.status !== "collecting") return;
+
   const answers = asksForPoll(pollId)
     .map((a) => a.answer)
     .filter((a): a is string => !!a && a.trim().length > 0);
+  const pastDeadline = poll.closesAt != null && poll.closesAt <= Date.now();
 
+  // anonymity floor (PROA-3): too few answers to safely surface — wait for more, or
+  // once the deadline passes, expire quietly. Never synthesize a single answer.
+  if (answers.length < MIN_POLL_RESPONDENTS) {
+    if (pastDeadline) {
+      setPollStatus(pollId, "expired");
+      logActivity("poll", poll.initiatorMemberId, { summary: `expired (only ${answers.length} answer(s), need ${MIN_POLL_RESPONDENTS}): ${poll.topic}`, pollId });
+    }
+    return;
+  }
+
+  setPollStatus(pollId, "synthesizing");
   let synthesis: string;
   try {
     const out = await callRoleJson<{ synthesis: string }>("social", {
@@ -133,11 +165,13 @@ export async function synthesizePoll(pollId: string): Promise<void> {
     synthesis = (out.synthesis ?? "").trim();
   } catch (e) {
     logActivity("error", poll.initiatorMemberId, { stage: "poll_synthesize", pollId, error: (e as Error).message });
-    setPollStatus(pollId, "collecting"); // leave open; heartbeat/operator can retry
+    // Don't loop forever (PROA-4): give up terminally once past the deadline; before
+    // that, drop back to collecting so a later answer can trigger one clean retry.
+    setPollStatus(pollId, pastDeadline ? "failed" : "collecting");
     return;
   }
   if (!synthesis) {
-    setPollStatus(pollId, "collecting");
+    setPollStatus(pollId, pastDeadline ? "failed" : "collecting");
     return;
   }
   setPollSynthesis(pollId, synthesis);

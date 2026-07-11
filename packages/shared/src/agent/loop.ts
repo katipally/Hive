@@ -12,6 +12,7 @@ export async function* runAgentLoop(
   const byName = new Map<string, AgentTool>(tools.map((t) => [t.spec.name, t]));
   const maxTurns = cfg.maxTurns ?? 8;
   const messages = [...history];
+  let lastText = ""; // most recent non-empty turn text, for the exhaustion fallback
 
   for (let turn = 0; turn < maxTurns; turn++) {
     yield { type: "turn_start" };
@@ -38,10 +39,16 @@ export async function* runAgentLoop(
         yield { type: "thinking_delta", text: ev.text };
       } else if (ev.type === "tool_call") {
         pendingCalls.push(ev.call);
+      } else if (ev.type === "error") {
+        // mid-stream provider failure — surface it so the caller can fall back
+        // honestly instead of ending the turn with an empty reply.
+        throw new Error(ev.error);
       } else if (ev.type === "done") {
         usage = ev.usage;
       }
     }
+
+    if (text.trim()) lastText = text;
 
     if (pendingCalls.length === 0) {
       yield { type: "turn_end", text, usage };
@@ -64,5 +71,7 @@ export async function* runAgentLoop(
       messages.push({ role: "toolResult", content: result, toolCallId: call.id });
     }
   }
-  yield { type: "turn_end", text: "", usage: undefined };
+  // maxTurns exhausted mid-tool-loop: don't emit an empty reply — fall back to the
+  // last non-empty text the model produced (the caller adds a final safety net).
+  yield { type: "turn_end", text: lastText, usage: undefined };
 }

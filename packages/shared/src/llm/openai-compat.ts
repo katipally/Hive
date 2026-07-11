@@ -1,4 +1,4 @@
-import type { ChatRequest, EmbedRequest, Message, StreamEvent } from "./types.js";
+import type { ChatRequest, Message, StreamEvent } from "./types.js";
 import { parseSSE } from "./sse.js";
 
 function toOpenAI(system: string | undefined, messages: Message[]): Record<string, unknown>[] {
@@ -31,12 +31,6 @@ function chatUrl(baseUrl: string): string {
   if (b.endsWith("/v1")) return `${b}/chat/completions`;
   if (/:11434$|ollama\.com$/.test(b)) return `${b}/v1/chat/completions`;
   return `${b}/chat/completions`;
-}
-function embedUrl(baseUrl: string): string {
-  const b = baseUrl.replace(/\/$/, "");
-  if (b.endsWith("/v1")) return `${b}/embeddings`;
-  if (/:11434$|ollama\.com$/.test(b)) return `${b}/v1/embeddings`;
-  return `${b}/embeddings`;
 }
 
 export async function* openaiStream(req: ChatRequest): AsyncGenerator<StreamEvent> {
@@ -114,17 +108,4 @@ export async function* openaiStream(req: ChatRequest): AsyncGenerator<StreamEven
     }
   }
   yield { type: "done", usage };
-}
-
-export async function openaiEmbed(req: EmbedRequest): Promise<number[][]> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (req.apiKey) headers["authorization"] = `Bearer ${req.apiKey}`;
-  const res = await fetch(embedUrl(req.baseUrl), {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ model: req.model, input: req.input }),
-  });
-  if (!res.ok) throw new Error(`embeddings ${res.status}: ${await res.text()}`);
-  const json = (await res.json()) as { data: { embedding: number[] }[] };
-  return json.data.map((d) => d.embedding);
 }

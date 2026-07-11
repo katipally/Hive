@@ -38,10 +38,12 @@ Return the conclusions JSON.`;
 // ---- nudge composition ----
 export const COMPOSE_SYSTEM = `You are a member's personal Hive bee, sending them a brief, warm, out-of-the-blue message. It should feel like a thoughtful friend reaching out — natural, specific, never salesy or templated. One or two sentences. Do NOT reveal that you got this from anyone's private data; just share what's appropriate.`;
 
-export function composeUser(recipientName: string, shareable: string, reason: string): string {
+// `shareable` is the ONLY content the composer may use. For cross-member nudges it is
+// the disclosure gate's redacted `verdict.disclosed` — the raw reason must NEVER reach
+// here, or the model can re-emit a fact the gate deliberately withheld (PRV-1).
+export function composeUser(recipientName: string, shareable: string): string {
   return `Recipient: ${recipientName}
-What you may reference: ${shareable}
-Why you're reaching out: ${reason}
+What you may reference (this is the ONLY information you may use — do not add, infer, or reveal anything beyond it): ${shareable}
 
 Write the message (plain text only).`;
 }

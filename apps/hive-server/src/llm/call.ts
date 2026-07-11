@@ -1,23 +1,26 @@
 import { complete } from "@hive/shared/llm";
 import type { Message } from "@hive/shared/llm";
 import { resolveRole } from "../settings/settings.js";
+import { getKVNum, setKVNum } from "../db/kv.js";
 import type { ModelRole } from "@hive/shared";
 
 // Global daily call cap — a safety backstop for the hosted demo's shared/baked key.
-// 0 (unset) = unlimited, so local dev is never affected. ponytail: in-memory global
-// counter; add per-IP buckets only if the public demo actually gets abused.
+// 0 (unset) = unlimited, so local dev is never affected. State is persisted in the DB
+// (not a module variable) so a Render cold-start doesn't reset the count to 0 and defeat
+// the cap. ponytail: add per-IP buckets only if the public demo actually gets abused.
 const DAILY_CAP = Number(process.env["HIVE_LLM_DAILY_CAP"] ?? 0);
-let capWindowStart = Date.now();
-let capCount = 0;
 function chargeBudget(): void {
   if (!DAILY_CAP) return;
   const now = Date.now();
-  if (now - capWindowStart > 86_400_000) {
-    capWindowStart = now;
-    capCount = 0;
+  let windowStart = getKVNum("llm:capWindowStart") ?? now;
+  let count = getKVNum("llm:capCount") ?? 0;
+  if (now - windowStart > 86_400_000) {
+    windowStart = now;
+    count = 0;
   }
-  if (capCount >= DAILY_CAP) throw new Error("Daily demo limit reached — the shared model budget resets within 24h.");
-  capCount++;
+  if (count >= DAILY_CAP) throw new Error("Daily demo limit reached — the shared model budget resets within 24h.");
+  setKVNum("llm:capWindowStart", windowStart);
+  setKVNum("llm:capCount", count + 1);
 }
 
 // Call a role's model for a single completion (used by pipeline stages).

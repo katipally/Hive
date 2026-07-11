@@ -47,8 +47,10 @@ export function lexicalSearch(query: string, k: number): LexHit[] {
   try {
     const rows = getDb()
       .db.prepare(
-        `SELECT memory_id AS memoryId, member_id AS memberId, text, bm25(memories_fts) AS rank
-         FROM memories_fts WHERE memories_fts MATCH ? ORDER BY rank LIMIT ?`,
+        // join to memories so superseded (contradicted) rows never surface (DATA-1)
+        `SELECT f.memory_id AS memoryId, f.member_id AS memberId, f.text, bm25(memories_fts) AS rank
+         FROM memories_fts f JOIN memories m ON m.id = f.memory_id
+         WHERE memories_fts MATCH ? AND m.superseded_by IS NULL ORDER BY rank LIMIT ?`,
       )
       .all(q, k) as { memoryId: string; memberId: string; text: string; rank: number }[];
     return rows.map((r) => ({ memoryId: r.memoryId, memberId: r.memberId, text: r.text, score: -r.rank }));

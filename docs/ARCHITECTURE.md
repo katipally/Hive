@@ -38,19 +38,21 @@ The hive pushes `nudge.deliver`, `channel.config`, and `identity.revoked` to the
    or after 45s of idle. The queue retries with backoff and re-drains on boot, so in-flight
    work survives a restart.
 3. **Extraction.** The **extraction**-role model reads the member's recent turns and returns
-   structured memories, entities, and relations. These are written to the graph; if an
-   embeddings model is configured, memory text is embedded for vector search.
-4. **Dedup + temporal invalidation.** New memories are deduplicated against existing ones
-   (vector distance, or exact text if no embeddings). For a fixed set of *functional*
-   relations (where a newer fact supersedes an older one), the previous edge is marked
-   invalidated with a validity range rather than deleted.
+   structured memories, entities, and relations. These are written to the graph and indexed
+   in an SQLite FTS5 table for lexical (BM25) retrieval.
+4. **Dedup + temporal invalidation.** New memories are deduplicated against existing ones via
+   an FTS shortlist + token overlap. For a fixed set of *functional* relations (where a newer
+   fact supersedes an older one), the previous edge is marked invalidated with a validity
+   range rather than deleted, and the raw memory behind it is superseded so stale facts stop
+   surfacing.
 5. **Implications & conclusions.** A follow-up **social**-role pass proposes higher-level
    implications; a periodic step folds memories into conclusions.
 
 ## Retrieval and grounding
 
-When a bee asks for context, the hive runs vector K-NN over the member's memories (with a
-cosine-similarity cutoff), falling back to recent memories when no embeddings model is set.
+When a bee asks for context, the hive runs BM25 lexical search (SQLite FTS5) over the member's
+memories, plus a hub-avoiding multi-hop traversal of their graph, falling back to recent
+memories when the query has no usable search terms. Retrieval is embedding-free — no vectors.
 Facts owned by *other* members are never returned raw: they pass through the disclosure agent
 first, and are scoped by which member a source memory belongs to, so one person's private
 facts can't leak into another's context.
@@ -89,17 +91,17 @@ captures their replies as they chat, synthesises a consensus, and delivers it ba
 ## Storage and secrets
 
 One SQLite database (`hive-data/hive.db`) in WAL mode with foreign keys on; the schema loads
-from `schema.sql` with idempotent additive migrations. Vector search uses a `sqlite-vec`
-virtual table created lazily on first embedding. Provider keys live in a `secrets` table,
+from `schema.sql` with idempotent additive migrations. Lexical search uses a `memories_fts`
+FTS5 virtual table kept in sync on every write. Provider keys live in a `secrets` table,
 encrypted with AES-256-GCM using a 32-byte master key at `hive-data/master.key` (mode `0600`,
 created on first boot). The API only ever returns the last four characters of a key.
 
 ## Models and providers
 
-Four roles are resolved independently to a provider + model + key: **chat** (bee replies),
-**extraction** (turn → graph), **social** (disclosure, implications, orchestration, nudge
-composition, digest, poll synthesis), and **embeddings** (optional; enables vector retrieval
-and dedup). Providers: Anthropic and MiniMax use the `anthropic-messages` API family; OpenAI
+Three roles are resolved independently to a provider + model + key: **chat** (bee replies),
+**extraction** (turn → graph), and **social** (disclosure, implications, orchestration, nudge
+composition, digest, poll synthesis). Retrieval is lexical, so there is no embeddings role.
+Providers: Anthropic and MiniMax use the `anthropic-messages` API family; OpenAI
 and Ollama use the `openai-compat` family. Reasoning effort is passed per role where the model
 supports it.
 

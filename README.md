@@ -60,7 +60,7 @@ The operator's window into the brain. Tabs down the left side:
 - **Disclosures**: a receipt for every time info crossed between people, including what it held back.
 - **Polls**: ask the whole group something anonymously and get one answer back.
 - **Members**: the people, their invite codes, and whether each bee is online.
-- **Channels** and **Settings**: connect Telegram / Discord / iMessage, and pick which AI model does which job.
+- **Channels** and **Settings**: connect Telegram / Discord, and pick which AI model does which job.
 
 ![Knowledge graph](docs/images/graph.png)
 
@@ -105,8 +105,8 @@ it writes down its reasoning every single time, which is what fills the Disclosu
 - **Contextual-integrity disclosure.** The share-or-withhold judgment above, fully audited.
 - **Proactive reach-outs.** A heartbeat looks for introductions worth making and things you would want to know, with cooldowns and quiet hours so it does not get annoying.
 - **Ask your network.** Post an anonymous question to the group and get a synthesized answer back.
-- **Reach people anywhere.** Web chat always works. Telegram, Discord, and iMessage plug in too.
-- **Any model.** Anthropic, MiniMax, OpenAI-style endpoints, or local Ollama. Four jobs (chat, extraction, social, embeddings) can each run on a different one.
+- **Reach people anywhere.** Web chat always works. Telegram and Discord plug in too.
+- **Any model.** Anthropic, MiniMax, OpenAI-style endpoints, or local Ollama. Three jobs (chat, extraction, social) can each run on a different one.
 - **Keys stay safe.** Provider keys are encrypted on disk, and bees never hold them.
 
 ![Proactive](docs/images/proactive.png)

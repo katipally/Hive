@@ -12,6 +12,7 @@ import { VoiceMode } from "./VoiceMode.js";
 import { Settings } from "./Settings.js";
 import { Channels } from "./Channels.js";
 import { usePrefs, TEXT_SIZE_CLASS } from "./usePrefs.js";
+import { matchCommands, type SlashCommand } from "@hive/shared/commands";
 import { API_BASE } from "./config.js";
 
 // A small click-out popover menu (profile actions, chat row actions). The
@@ -113,6 +114,8 @@ export function App() {
   const [bees, setBees] = useState<BeeInfo[]>([]);
   const [beeId, setBeeId] = useState(() => localStorage.getItem("bee_sel") ?? "");
   const [input, setInput] = useState("");
+  const [cmdSel, setCmdSel] = useState(0); // slash-command autocomplete: highlighted row
+  const [cmdVisible, setCmdVisible] = useState(true); // hidden after a pick/Escape until next edit
   const [listening, setListening] = useState(false);
   const [pairedName, setPairedName] = useState<string | null>(null);
   const [memberNames, setMemberNames] = useState<Record<string, string>>({});
@@ -307,6 +310,14 @@ export function App() {
       saveSessions(sessions.map((s) => (s.id === sessionId ? { ...s, title: titleFrom(text) } : s)));
     }
     if (chat.send(input)) setInput("");
+  }
+
+  // Slash-command autocomplete: suggest while the user is typing "/word" (before any space).
+  const cmdMatches: SlashCommand[] = cmdVisible && /^\/[^\s]*$/.test(input) ? matchCommands(input) : [];
+  function pickCommand(c: SlashCommand) {
+    setInput(c.args ? `/${c.name} ` : `/${c.name}`); // leave a space so args can follow
+    setCmdVisible(false);
+    taRef.current?.focus();
   }
 
   function toggleMic() {
@@ -598,12 +609,34 @@ export function App() {
         </div>
 
         <div className="px-4 pb-4 pt-2">
-          <div className="mx-auto w-full max-w-2xl rounded-[20px] border border-border bg-surface shadow-[var(--shadow-input)] transition-[box-shadow,border-color] focus-within:border-accent/40 focus-within:shadow-[var(--shadow-input-focus)]">
+          <div className="relative mx-auto w-full max-w-2xl rounded-[20px] border border-border bg-surface shadow-[var(--shadow-input)] transition-[box-shadow,border-color] focus-within:border-accent/40 focus-within:shadow-[var(--shadow-input-focus)]">
+            {cmdMatches.length > 0 && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-2xl border border-border bg-surface py-1 shadow-[var(--shadow-input)]">
+                {cmdMatches.map((c, i) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); pickCommand(c); }}
+                    onMouseEnter={() => setCmdSel(i)}
+                    className={cn("flex w-full items-baseline gap-2 px-3.5 py-1.5 text-left", i === cmdSel ? "bg-fg/10" : "hover:bg-fg/5")}
+                  >
+                    <span className="font-mono text-sm text-fg">/{c.name}{c.args ? ` ${c.args}` : ""}</span>
+                    <span className="truncate text-xs text-muted">{c.description}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <textarea
               ref={taRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => { setInput(e.target.value); setCmdSel(0); setCmdVisible(true); }}
               onKeyDown={(e) => {
+                if (cmdMatches.length) {
+                  if (e.key === "ArrowDown") { e.preventDefault(); setCmdSel((i) => (i + 1) % cmdMatches.length); return; }
+                  if (e.key === "ArrowUp") { e.preventDefault(); setCmdSel((i) => (i - 1 + cmdMatches.length) % cmdMatches.length); return; }
+                  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) { e.preventDefault(); pickCommand(cmdMatches[Math.min(cmdSel, cmdMatches.length - 1)]!); return; }
+                  if (e.key === "Escape") { e.preventDefault(); setCmdVisible(false); return; }
+                }
                 if (e.key === "Enter" && !e.shiftKey && prefs.enterToSend) { e.preventDefault(); submit(); }
                 else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
               }}

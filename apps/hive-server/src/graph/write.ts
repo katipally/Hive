@@ -134,10 +134,11 @@ export function invalidateEdgesBySrcRel(
 ): number {
   const { db } = getDb();
   const rows = db
-    .prepare("SELECT id FROM edges WHERE src_entity_id=? AND rel=? AND invalidated_at IS NULL")
-    .all(srcEntityId, rel) as { id: string }[];
+    .prepare("SELECT id, source_memory_id FROM edges WHERE src_entity_id=? AND rel=? AND invalidated_at IS NULL")
+    .all(srcEntityId, rel) as { id: string; source_memory_id: string | null }[];
   let n = 0;
   const now = Date.now();
+  const supersededSources = new Set<string>();
   for (const r of rows) {
     if (r.id === exceptEdgeId) continue;
     db.prepare("UPDATE edges SET invalidated_at=?, valid_to=?, invalidated_by_memory_id=? WHERE id=?").run(
@@ -147,6 +148,15 @@ export function invalidateEdgesBySrcRel(
       r.id,
     );
     n++;
+    if (r.source_memory_id && r.source_memory_id !== byMemoryId) supersededSources.add(r.source_memory_id);
+  }
+  // DATA-1: supersede the raw memories that sourced the now-contradicted edges, so the
+  // stale fact ("lives in Austin") stops surfacing in /me and retrieval next to the new
+  // one ("moved to Denver"). We keep the row (audit trail) but mark it superseded; reads
+  // filter on superseded_by IS NULL. Only when there's a replacement memory to point at.
+  if (byMemoryId && supersededSources.size) {
+    const sup = db.prepare("UPDATE memories SET superseded_by=? WHERE id=? AND superseded_by IS NULL");
+    for (const sid of supersededSources) sup.run(byMemoryId, sid);
   }
   return n;
 }

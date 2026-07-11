@@ -1,5 +1,14 @@
 import { Bot } from "grammy";
+import { SLASH_COMMANDS } from "@hive/shared";
 import type { ChannelAdapter, InboundMessage, ReplySink } from "./types.js";
+import { splitMessage, toTelegram, TELEGRAM_LIMIT } from "./format.js";
+
+// Telegram's native "/" menu: names must be lowercase a-z0-9_ with no spaces, so drop
+// multi-word commands (e.g. "privacy set") — they still work when typed.
+const TELEGRAM_MENU = SLASH_COMMANDS.filter((c) => /^[a-z0-9_]{1,32}$/.test(c.name)).map((c) => ({
+  command: c.name,
+  description: c.description.slice(0, 256),
+}));
 
 // Telegram via grammY bot (long polling). One bot token per bee instance.
 export class TelegramChannel implements ChannelAdapter {
@@ -25,7 +34,8 @@ export class TelegramChannel implements ChannelAdapter {
     bot.on("message:text", (ctx) => {
       const from = ctx.from;
       if (!from || from.is_bot) return;
-      const send = (text: string) => void ctx.reply(text);
+      void ctx.replyWithChatAction("typing").catch(() => {}); // CH-6: show the bee is working
+      const send = (text: string) => this.emit((s) => ctx.reply(s), text);
       const sink: ReplySink = { delta: () => {}, done: (t) => send(t), notice: (t) => send(t) };
       onMessage(
         {
@@ -39,8 +49,10 @@ export class TelegramChannel implements ChannelAdapter {
       );
     });
     bot.catch((e) => console.error("[telegram]", e.message));
-    // fire-and-forget long polling — a bad token must not crash the runtime
-    bot.start({ onStart: () => { this.ok = true; } }).catch((e) => {
+    void bot.api.setMyCommands(TELEGRAM_MENU).catch(() => {}); // populate the native "/" menu
+    // fire-and-forget long polling — a bad token must not crash the runtime.
+    // drop_pending_updates: don't replay a backlog of messages after a restart/reconnect.
+    bot.start({ drop_pending_updates: true, onStart: () => { this.ok = true; } }).catch((e) => {
       this.ok = false;
       console.error(`[telegram] failed to start (check the bot token): ${(e as Error).message}`);
     });
@@ -60,7 +72,14 @@ export class TelegramChannel implements ChannelAdapter {
 
   async send(externalId: string, text: string): Promise<void> {
     if (!this.bot) throw new Error("telegram not started");
-    await this.bot.api.sendMessage(externalId, text);
+    await this.emit((s) => this.bot!.api.sendMessage(externalId, s), text);
+  }
+
+  // Format for Telegram (strip markdown) then deliver in <=4096-char chunks, in order.
+  private async emit(sendOne: (part: string) => Promise<unknown>, text: string): Promise<void> {
+    for (const part of splitMessage(toTelegram(text), TELEGRAM_LIMIT)) {
+      await sendOne(part).catch((e) => console.error(`[telegram] send failed: ${(e as Error).message}`));
+    }
   }
 
   health() {

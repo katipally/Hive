@@ -12,6 +12,11 @@ import { registerPipeline } from "./pipeline/register.js";
 import { startHeartbeat } from "./proactive/heartbeat.js";
 import { bootstrapDemo } from "./demo.js";
 
+// Last-resort backstops so one poison message / rejected promise logs instead of
+// tearing the process down (or silently killing a background loop).
+process.on("unhandledRejection", (e) => console.error("[hive] unhandledRejection:", e));
+process.on("uncaughtException", (e) => console.error("[hive] uncaughtException:", e));
+
 const VERSION = "0.1.0";
 const PORT = Number(process.env["HIVE_PORT"] ?? 4800);
 const DATA_DIR = process.env["HIVE_DATA_DIR"] ?? join(process.cwd(), "hive-data");
@@ -44,6 +49,13 @@ startHeartbeat();
 
 console.log(`[hive] listening on http://localhost:${PORT}  (ws: /ws/bee, /ws/dash)`);
 console.log(`[hive] data dir: ${DATA_DIR}`);
+
+// Surface silent-absence: a missing key means a whole feature quietly never fires,
+// with no error anywhere. Warn loudly at boot instead.
+if (process.env["HIVE_DEMO"] && !process.env["MINIMAX_API_KEY"])
+  console.warn("[hive] ⚠ MINIMAX_API_KEY not set — the 'social' role stays unconfigured, so proactive nudges/polls will NEVER fire.");
+if (!process.env["EXA_API_KEY"])
+  console.warn("[hive] ⚠ EXA_API_KEY not set — real-world errands and web_lookup/read_url are unavailable; the bee will say it can't look things up.");
 
 // hosted demo only (HIVE_DEMO): bake key/roles, seed the scenario, kick orchestrator
 void bootstrapDemo().catch((e) => console.error("[hive] demo bootstrap failed:", e));

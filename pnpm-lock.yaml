@@ -63,6 +63,9 @@ importers:
       '@fontsource-variable/geist-mono':
         specifier: ^5.1.0
         version: 5.2.8
+      '@hive/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@hive/ui':
         specifier: workspace:*
         version: link:../../packages/ui

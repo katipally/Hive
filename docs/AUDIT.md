@@ -6,6 +6,27 @@
 >
 > Interactive version: the published audit artifact (same content, visual).
 
+## Remediation pass (July 2026)
+
+A fix pass addressed the usage / agent / hive / bee findings. **Fixed:** ERR-1..5 (no silent
+empty replies, mid-stream errors surfaced, WS/heartbeat hardened, bad-timezone guard); PRV-1
+(compose from redacted text only), PRV-2 (raw-memory endpoint now behind the bee token), PRV-4
+(`/private` persists nothing); PROA-1 (optimistic sent, no re-push burst), PROA-3 (min-respondent
+floor), PROA-4 (terminal `expired`/`failed` poll states), PROA-5 (synthesis re-entrancy guard),
+PROA-7 (polls respect proactivity=off + quiet hours), PROA-8 (approve status guard), PROA-10
+(persisted `lastOrchestrator`); DATA-1 (contradicted memories superseded), DATA-2 (caps +
+last-run timestamps persisted in a `kv` table), DATA-3 (dead embeddings code removed); CH-1..6
+(per-channel chunking + formatting, typing indicators, web nudge persisted, TTS markdown strip);
+slash-command registry + web autocomplete + Telegram menu; model-name mismatch aligned to
+`MiniMax-M2`; `getDbLazy` removed; `GET /api/members` no longer mints codes.
+
+**Deferred (documented, low demo impact):** security items SEC-1/3/4/5 (open API/WS — accepted
+"purge only" scope; PRV-2 narrows the worst leak); PRV-3 pooling (internal-only, outbound now
+closed by PRV-1); MINE-2/MINE-3 (model-specific `[e~[` strip + double memory injection — need
+live MiniMax A/B before removal); full magic-number centralization and `entities.attrs` removal
+(cosmetic). Security scope was intentionally minimal per the operator's decision (hosted for one
+tester, not adversarial).
+
 ## Summary
 
 - **11 Critical · 16 High · 21 Medium · 14 Low · 7 verified-OK**

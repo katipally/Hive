@@ -11,6 +11,7 @@
   "dependencies": {
     "@fontsource-variable/geist": "^5.1.0",
     "@fontsource-variable/geist-mono": "^5.1.0",
+    "@hive/shared": "workspace:*",
     "@hive/ui": "workspace:*",
     "clsx": "^2.1.1",
     "lucide-react": "^0.469.0",

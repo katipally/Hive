@@ -7,6 +7,16 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at INTEGER NOT NULL
 );
 
+-- Runtime state that must survive a restart / Render cold-start: rate-limit windows,
+-- last-run timestamps. Previously module-level variables that reset to 0 every boot
+-- (making caps ineffective and re-firing the orchestrator on each start). Separate from
+-- `settings`, which is user-facing config.
+CREATE TABLE IF NOT EXISTS kv (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS secrets (
   name TEXT PRIMARY KEY,
   ciphertext BLOB NOT NULL,

@@ -102,13 +102,23 @@ export function attachBeeHub(wss: WebSocketServer, version: string): void {
           send(ws, { type: "pong" });
           break;
         case "identity.check": {
-          const r = checkIdentity(msg.channel, msg.externalId);
-          send(ws, { type: "identity.result", reqId: msg.reqId, ...r });
+          try {
+            const r = checkIdentity(msg.channel, msg.externalId);
+            send(ws, { type: "identity.result", reqId: msg.reqId, ...r });
+          } catch (e) {
+            console.error(`[hive] identity.check failed: ${(e as Error).message}`);
+            send(ws, { type: "identity.result", reqId: msg.reqId, known: false });
+          }
           break;
         }
         case "pair.attempt": {
-          const r = attemptPair(msg.channel, msg.externalId, msg.displayName, msg.code, beeId);
-          send(ws, { type: "pair.result", reqId: msg.reqId, ...r });
+          try {
+            const r = attemptPair(msg.channel, msg.externalId, msg.displayName, msg.code, beeId);
+            send(ws, { type: "pair.result", reqId: msg.reqId, ...r });
+          } catch (e) {
+            console.error(`[hive] pair.attempt failed: ${(e as Error).message}`);
+            send(ws, { type: "pair.result", reqId: msg.reqId, ok: false, error: "hive error, try again" });
+          }
           break;
         }
         case "context.request": {
@@ -124,13 +134,23 @@ export function attachBeeHub(wss: WebSocketServer, version: string): void {
           break;
         }
         case "ingest.turn": {
-          ingestTurn(msg);
+          try {
+            ingestTurn(msg);
+          } catch (e) {
+            // A poison turn must still be acked, or it stays in the bee's outbox and
+            // is resent on every reconnect forever. Log and drop it.
+            console.error(`[hive] ingest.turn ${msg.turnId} failed: ${(e as Error).message}`);
+          }
           send(ws, { type: "ingest.ack", turnId: msg.turnId });
           break;
         }
         case "nudge.result":
-          // recorded by the proactive module via a listener in M7
-          nudgeResultListeners.forEach((l) => l(msg.nudgeId, msg.status, msg.error));
+          try {
+            // recorded by the proactive module via a listener in M7
+            nudgeResultListeners.forEach((l) => l(msg.nudgeId, msg.status, msg.error));
+          } catch (e) {
+            console.error(`[hive] nudge.result failed: ${(e as Error).message}`);
+          }
           break;
       }
     });

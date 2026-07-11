@@ -1,4 +1,4 @@
-import { id, CONSTITUTION, CONSTITUTION_BRIEF } from "@hive/shared";
+import { id, CONSTITUTION, CONSTITUTION_BRIEF, helpText } from "@hive/shared";
 import type { ChannelKind, ContextBlock } from "@hive/shared";
 import { runAgentLoop } from "@hive/shared/agent";
 import { saveConfig, type BeeConfig, type BeeInstanceConfig } from "./config.js";
@@ -46,8 +46,8 @@ export class Bee {
     this.link.start();
     // start any channel adapters already configured with credentials
     const ch = this.instance.channels;
-    if (ch.telegram?.botToken) this.registerAdapter(new TelegramChannel(ch.telegram.botToken));
-    if (ch.discord?.botToken) this.registerAdapter(new DiscordChannel(ch.discord.botToken));
+    if (ch.telegram?.botToken) void this.registerAdapter(new TelegramChannel(ch.telegram.botToken), ch.telegram.botToken);
+    if (ch.discord?.botToken) void this.registerAdapter(new DiscordChannel(ch.discord.botToken), ch.discord.botToken);
     // web adapter is registered by the runtime
   }
 
@@ -62,18 +62,30 @@ export class Bee {
     this.link.stop();
   }
 
-  registerAdapter(a: ChannelAdapter): void {
+  // Signature (token) of the currently-registered adapter per kind, so a redundant
+  // re-register (same token) can be skipped — otherwise every hive reconnect re-pushes
+  // the stored config and spins up a SECOND long-poller fighting the first over the same
+  // bot (Telegram 409 storm → console flood → the whole machine lags).
+  private adapterSig = new Map<ChannelKind, string>();
+
+  async registerAdapter(a: ChannelAdapter, sig = ""): Promise<void> {
     if (a.kind !== "web") {
       const owner = claimedChannels.get(a.kind);
       if (owner && owner !== this.instance.beeId) {
         console.warn(`[bee] ${a.kind} already running on ${owner}; ${this.instance.beeId} won't start a duplicate`);
         return;
       }
+      // Already running this exact adapter — don't start a duplicate poller.
+      if (this.adapters.has(a.kind) && this.adapterSig.get(a.kind) === sig) return;
       claimedChannels.set(a.kind, this.instance.beeId);
     }
-    void this.adapters.get(a.kind)?.stop();
+    // Stop the old adapter and WAIT for it to fully release before starting the new one,
+    // so two pollers never overlap on the same bot.
+    const old = this.adapters.get(a.kind);
+    if (old) await old.stop().catch(() => {});
     this.adapters.set(a.kind, a);
-    a.start((msg, sink) => void this.onMessage(msg, sink)).catch((e) =>
+    this.adapterSig.set(a.kind, sig);
+    await a.start((msg, sink) => void this.onMessage(msg, sink)).catch((e) =>
       console.error(`[bee] channel ${a.kind} failed to start: ${(e as Error).message}`),
     );
   }
@@ -122,7 +134,13 @@ export class Bee {
     let linked = this.cache.get(k);
 
     if (!linked) {
-      const check = await this.link.identityCheck(msg.channel, msg.externalId);
+      let check;
+      try {
+        check = await this.link.identityCheck(msg.channel, msg.externalId);
+      } catch {
+        await sink.notice("I can't reach the hive right now — give me a moment and try again?");
+        return;
+      }
       if (check.known && check.memberId && check.channelIdentityId) {
         linked = {
           memberId: check.memberId,
@@ -131,6 +149,21 @@ export class Bee {
         };
         this.cache.set(k, linked);
       }
+    }
+
+    // explicit auth commands — usable on any channel, linked or not
+    if (/^\s*\/logout\b/i.test(msg.text)) {
+      if (!linked) { await sink.notice("You're not linked here — nothing to log out of. Send /login <code> to connect."); return; }
+      await this.unlink(msg.channel, msg.externalId, sink);
+      return;
+    }
+    const login = /^\s*\/login\b\s*(.*)$/i.exec(msg.text);
+    if (login) {
+      if (linked) { await sink.notice(`You're already linked as ${linked.memberName}. Send /logout first if you want to switch accounts.`); return; }
+      const loginCode = detectCode(login[1] ?? "");
+      if (!loginCode) { await sink.notice("To link me to your account, send /login and your invite code — e.g. /login BEE-1234."); return; }
+      await this.pairWithCode(msg, loginCode, sink);
+      return;
     }
 
     if (!linked) {
@@ -144,18 +177,7 @@ export class Bee {
         }
         return;
       }
-      const r = await this.link.pair(msg.channel, msg.externalId, msg.displayName, code);
-      if (!r.ok || !r.memberId || !r.channelIdentityId) {
-        await sink.notice(`That code didn't work: ${r.error ?? "unknown error"}. Try again?`);
-        return;
-      }
-      linked = {
-        memberId: r.memberId,
-        memberName: r.memberName ?? "friend",
-        channelIdentityId: r.channelIdentityId,
-      };
-      this.cache.set(k, linked);
-      await sink.notice(`✅ Linked! Hi ${linked.memberName} — talk to me anytime.`);
+      if (!(await this.pairWithCode(msg, code, sink))) return;
       return;
     }
 
@@ -166,6 +188,46 @@ export class Bee {
     const offRecord = orMarker.test(msg.text);
     const forChat = offRecord ? { ...msg, text: msg.text.replace(orMarker, "") } : msg;
     await this.chat(forChat, sink, linked, offRecord);
+  }
+
+  // Pair this channel address to a member via an invite code, cache it, and confirm.
+  // Shared by the bare-code flow and the explicit /login command. Returns the link or null.
+  private async pairWithCode(msg: InboundMessage, code: string, sink: ReplySink): Promise<Linked | null> {
+    let r;
+    try {
+      r = await this.link.pair(msg.channel, msg.externalId, msg.displayName, code);
+    } catch {
+      await sink.notice("I can't reach the hive to link you right now — try again in a moment?");
+      return null;
+    }
+    if (!r.ok || !r.memberId || !r.channelIdentityId) {
+      await sink.notice(`That code didn't work: ${r.error ?? "unknown error"}. Try again?`);
+      return null;
+    }
+    const linked: Linked = { memberId: r.memberId, memberName: r.memberName ?? "friend", channelIdentityId: r.channelIdentityId };
+    this.cache.set(this.key(msg.channel, msg.externalId), linked);
+    await sink.notice(`✅ Linked! Hi ${linked.memberName} — talk to me anytime.`);
+    return linked;
+  }
+
+  // /logout — unlink just THIS channel identity on the hive, then forget it locally.
+  // Other channels and the member's memory are untouched.
+  private async unlink(channel: ChannelKind, externalId: string, sink: ReplySink): Promise<void> {
+    try {
+      const res = await fetch(`${this.cfg.hiveHttpUrl}/api/unlink`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-bee-id": this.instance.beeId, "x-bee-token": this.instance.beeToken },
+        body: JSON.stringify({ channel, externalId }),
+      });
+      if (!res.ok) throw new Error(`unlink ${res.status}`);
+    } catch {
+      await sink.notice("I couldn't reach the hive to unlink you — try again in a moment?");
+      return;
+    }
+    const k = this.key(channel, externalId);
+    this.cache.delete(k);
+    this.lastPrompt.delete(k);
+    await sink.notice("You're logged out — I've unlinked this chat from your account. Send /login <code> anytime to reconnect.");
   }
 
   // Lightweight commands handled locally (never ingested as facts).
@@ -179,7 +241,9 @@ export class Bee {
       return true;
     }
     if (/^\s*\/me\b/i.test(text)) {
-      const mems = await fetch(`${hive}/api/members/${linked.memberId}/memories`)
+      const mems = await fetch(`${hive}/api/members/${linked.memberId}/memories`, {
+        headers: { "x-bee-id": this.instance.beeId, "x-bee-token": this.instance.beeToken },
+      })
         .then((x) => x.json())
         .catch(() => []);
       const top = (mems as { text: string }[]).slice(0, 15).map((m) => `• ${m.text}`).join("\n");
@@ -220,9 +284,7 @@ export class Bee {
       return true;
     }
     if (/^\s*\/help\b/i.test(text)) {
-      await sink.notice(
-        "Things you can ask me:\n• /me — what I remember about you\n• /shared — what I've shared about you\n• /forget — forget the last thing\n• /private <message> — talk off the record (I won't store it)\n• /nopoll — don't include me when gathering the group's opinions\n• /privacy set <rule> — a standing rule before I share anything about you",
-      );
+      await sink.notice(helpText()); // generated from the shared registry — never drifts
       return true;
     }
     return false;
@@ -243,9 +305,11 @@ export class Bee {
     // at the hive graph level; only the conversation transcript is per-session.
     const sessionId = `member:${linked.memberId}:${msg.sessionTag ?? "main"}`;
 
-    // record + ingest the user turn — unless it's off the record (store nothing)
-    appendSession(this.instance.beeId, sessionId, "user", msg.text);
+    // record + ingest the user turn — unless it's off the record. Off-record means
+    // store NOTHING: not the session .jsonl (which feeds the cloud summarizer), not the
+    // display transcript, not the graph. The turn lives only in this request's memory.
     if (!offRecord) {
+      appendSession(this.instance.beeId, sessionId, "user", msg.text);
       appendDisplay(this.instance.beeId, sessionId, "user", msg.text);
       this.link.ingestTurn({
         turnId: id("turn"),
@@ -296,6 +360,9 @@ export class Bee {
     }
 
     const history = await loadHistoryCompacted(this.instance.beeId, sessionId, summarize);
+    // Off-record turns aren't persisted, so the current user message isn't in the loaded
+    // history — inject it in-memory only so the bee can still reply to it.
+    if (offRecord) history.push({ role: "user", content: msg.text });
     const system = buildSystem(linked.memberName, blocks, persona);
     // Some models (e.g. MiniMax) under-weight the system prompt and only reliably use
     // facts that appear in the CONVERSATION. So we also seed the hive's retrieved memory
@@ -313,6 +380,8 @@ export class Bee {
     const tools = makeBeeTools({
       hiveHttpUrl: this.cfg.hiveHttpUrl,
       memberId: linked.memberId,
+      beeId: this.instance.beeId,
+      beeToken: this.instance.beeToken,
       recall: (q) => this.link.context(linked.memberId, sessionId, q),
     });
 
@@ -344,13 +413,19 @@ export class Bee {
         }
       }
     } catch (e) {
-      await sink.notice(`(couldn't reach my brain: ${(e as Error).message})`);
+      console.error(`[bee] chat failed: ${(e as Error).message}`);
+      await sink.done("Sorry — I couldn't reach my brain just now. Mind trying that again in a moment?");
       return;
     }
     full = cleanReply(full || curTurn);
+    if (!full) {
+      // Agent loop ran out of turns (or produced nothing) — never send a blank reply.
+      await sink.done("Sorry, I lost my train of thought there — could you say that again?");
+      return; // don't persist/ingest a non-answer
+    }
     await sink.done(full); // done carries the clean final text; the web replaces the stream with it
-    appendSession(this.instance.beeId, sessionId, "assistant", full);
     if (!offRecord) {
+      appendSession(this.instance.beeId, sessionId, "assistant", full);
       appendDisplay(this.instance.beeId, sessionId, "bee", full);
       this.link.ingestTurn({
         turnId: id("turn"),
@@ -377,6 +452,11 @@ export class Bee {
   }
 
   private async deliverNudge(nudgeId: string, channel: ChannelKind, externalId: string, text: string): Promise<void> {
+    // Persist to the display transcript FIRST (CH-3), so a web nudge survives a closed
+    // tab / refresh even when live delivery fails — the old order dropped it entirely.
+    const sid = await this.sessionForMember(channel, externalId);
+    if (sid) appendDisplay(this.instance.beeId, sid, "nudge", text);
+
     const adapter = this.adapters.get(channel);
     if (!adapter) {
       this.link.nudgeResult(nudgeId, "failed", `no adapter for ${channel}`);
@@ -385,9 +465,6 @@ export class Bee {
     try {
       await adapter.send(externalId, text);
       this.link.nudgeResult(nudgeId, "delivered");
-      // persist to the member's display transcript so it survives a refresh
-      const sid = await this.sessionForMember(channel, externalId);
-      if (sid) appendDisplay(this.instance.beeId, sid, "nudge", text);
     } catch (e) {
       this.link.nudgeResult(nudgeId, "failed", (e as Error).message);
     }
@@ -407,6 +484,7 @@ export class Bee {
     if (disabled) {
       void this.adapters.get(channel)?.stop();
       this.adapters.delete(channel);
+      this.adapterSig.delete(channel);
       delete this.instance.channels[channel];
       this.persistInstance();
       return;
@@ -416,10 +494,9 @@ export class Bee {
     this.instance.channels[channel] = config as never;
     this.persistInstance();
 
-    if (channel === "telegram" && (config as { botToken?: string }).botToken)
-      this.registerAdapter(new TelegramChannel((config as { botToken: string }).botToken));
-    else if (channel === "discord" && (config as { botToken?: string }).botToken)
-      this.registerAdapter(new DiscordChannel((config as { botToken: string }).botToken));
+    const token = (config as { botToken?: string }).botToken;
+    if (channel === "telegram" && token) void this.registerAdapter(new TelegramChannel(token), token);
+    else if (channel === "discord" && token) void this.registerAdapter(new DiscordChannel(token), token);
   }
 }
 

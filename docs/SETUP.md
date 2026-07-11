@@ -36,7 +36,8 @@ Open the **dashboard** at http://localhost:5173.
 **Settings** tab:
 1. Add a provider key (Anthropic, OpenAI-compatible, Ollama, or MiniMax). Keys are
    encrypted; only the last 4 digits are shown.
-2. Assign a model to each of the four roles: **chat, extraction, social, embeddings**.
+2. Assign a model to each of the three roles: **chat, extraction, social** (retrieval is
+   lexical — there is no embeddings role).
 
 Local, no cloud key: run [Ollama](https://ollama.com) and point the base URL at it.
 

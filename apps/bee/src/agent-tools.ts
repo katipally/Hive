@@ -11,10 +11,15 @@ import type { ContextBlock } from "@hive/shared";
 export function makeBeeTools(deps: {
   hiveHttpUrl: string;
   memberId: string;
+  beeId: string;
+  beeToken: string;
   recall: (query: string) => Promise<ContextBlock[]>;
 }): AgentTool[] {
-  const { hiveHttpUrl, memberId, recall } = deps;
-  const hive = (path: string, init?: RequestInit) => fetch(`${hiveHttpUrl}${path}`, init);
+  const { hiveHttpUrl, memberId, beeId, beeToken, recall } = deps;
+  // Attach bee auth on every hive call — endpoints that don't require it ignore the
+  // headers; the gated ones (e.g. raw memories) need them.
+  const hive = (path: string, init: RequestInit = {}) =>
+    fetch(`${hiveHttpUrl}${path}`, { ...init, headers: { ...init.headers, "x-bee-id": beeId, "x-bee-token": beeToken } });
 
   return [
     {

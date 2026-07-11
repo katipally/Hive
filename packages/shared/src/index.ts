@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./constitution.js";
+export * from "./commands.js";
 export * from "./util/id.js";
 export * from "./util/jsonl.js";
 export * from "./protocol/index.js";
