@@ -1,104 +1,131 @@
 # Hive 🐝
 
-Social intelligence for a group of people. Each member talks to their own **Bee** — a
-personal AI agent — over web chat, Telegram, Discord, or iMessage. Behind every bee sits
-one shared **Hive**: it receives each conversation turn, builds a temporal knowledge graph
-of what it learns, and proactively connects people. A contextual-integrity **disclosure
-agent** decides what may cross between members, so the hive can be useful to everyone
-without leaking what should stay private.
+Everyone in a friend group gets their own AI, called a **bee**. Behind all the bees sits one
+shared brain, the **hive**. The hive quietly learns what everyone is up to, remembers it, and
+connects people when it makes sense. It also knows how to keep a secret: it decides what is okay
+to pass between friends and what should stay put.
 
-Everything runs locally. Provider API keys are entered in the dashboard and encrypted at
-rest — no `.env`, no plaintext secrets on disk.
+**Try the live demo, nothing to install:**
 
-## The pieces
+- 🐝 Bee chat: **https://hive-demo.onrender.com/chat**
+- 🖥️ Hive dashboard: **https://hive-demo.onrender.com/**
 
-| Part | What it is |
-|------|------------|
-| **Hive server** | The brain. HTTP API + WebSockets, SQLite knowledge graph, extraction/disclosure/proactive pipelines. |
-| **Hive dashboard** (website) | The operator console: view the graph, disclosures, proactive activity, members, channels, and model settings. |
-| **Bee runtime** | Hosts the bees and the channel adapters (web/Telegram/Discord/iMessage). Holds no API keys — it proxies LLM calls through the hive. |
-| **Bee chat** (website) | Where a member actually talks to their bee: streaming chat, multiple conversations, voice mode. |
+> It runs on a free host that falls asleep when idle, so the very first load can take about 50
+> seconds to wake up. After that it is quick.
 
-## What it does
+## The idea in one picture
 
-- **Temporal knowledge graph.** Every turn is extracted by an LLM into memories, entities,
-  and relations stored in SQLite (`better-sqlite3` + `sqlite-vec`). Facts carry validity
-  ranges: when something changes ("moved to Berlin"), the superseded relation is invalidated
-  rather than deleted, so the graph has history.
-- **Contextual-integrity disclosure.** Whenever one member's knowledge could reach another
-  (in a reply or a proactive nudge), a dedicated agent decides `share` / `partial` /
-  `withhold`. It fails closed on error, honours each member's free-text privacy preferences,
-  and every decision is logged with the model's reasoning and what was withheld.
-- **Proactive connection.** A heartbeat runs the social layer: an orchestrator scans the
-  group for introductions worth making, per-member nudges surface things you'd want to know,
-  and a weekly digest summarises a member's week. Nudges are rate-limited, deduplicated,
-  quiet-hours-aware, and delivered out-of-band to the right person's bee.
-- **Ask your network (polls).** The hive can pose an anonymised question across members,
-  collect replies through their bees, and synthesise a consensus back — gossip as a
-  coordination tool, with attribution stripped.
-- **Multiple channels.** Web chat is always on. Telegram and Discord connect with a bot
-  token; iMessage (macOS) reads `~/Library/Messages/chat.db` and sends via AppleScript.
-- **Bring your own model.** Anthropic, MiniMax, OpenAI-compatible endpoints, and local
-  Ollama are supported. Four roles are assigned independently: **chat**, **extraction**,
-  **social**, and **embeddings**.
-- **Privacy & security.** Keys are AES-256-GCM encrypted (`hive-data/master.key`, `0600`).
-  Bees never hold keys. Unknown senders are refused until paired. Servers bind `127.0.0.1`.
+```mermaid
+flowchart LR
+  A["🐝 Alice's bee"] --> H
+  B["🐝 Bob's bee"] --> H
+  C["🐝 Cara's bee"] --> H
+  H[["🧠 Hive brain<br/>memory + judgment"]]
+  H -. "nudges people, with care" .-> A
+  H -. .-> B
+  H -. .-> C
+  H --> D["🖥️ Dashboard<br/>watch it think"]
+```
 
-## Using the Hive dashboard
+Each person only ever talks to their own bee. The hive sits in the middle, builds a memory of
+the whole group, and reaches out when it spots something worth a nudge.
 
-The operator console. Its tabs map to real endpoints on the hive server:
+## Two websites, two jobs
 
-- **Knowledge graph** — the 3D graph of members, entities, and relations. Filter by member,
-  search, inspect a node, or delete memories/entities.
-- **Proactive** — pending and sent nudges, a live activity feed, and shared interests across
-  members. "Find connections" triggers an orchestrator pass on demand.
-- **Polls** — create an ask-your-network poll, watch replies land, and synthesise the result.
-- **Disclosures** — the audit log of every cross-member decision (share/partial/withhold)
-  with reasoning.
-- **Members** — add members, copy their `BEE-XXXX` invite code, and set per-bee persona,
-  proactivity, quiet hours, and timezone.
-- **Channels** — connect Telegram/Discord/iMessage and see live adapter health.
-- **Settings** — add provider keys (only the last 4 digits are ever shown) and assign a model
-  to each of the four roles.
+The demo is two sites. One is for the people in the group, one is for whoever runs it.
 
-## Using the Bee chat
+|              | 🐝 Bee chat                | 🖥️ Hive dashboard        |
+| ------------ | -------------------------- | ------------------------- |
+| Who it is for | a member (Alice/Bob/Cara)  | the operator              |
+| What you do  | chat with your bee         | watch the hive think      |
+| Where        | `/chat`                    | `/`                       |
 
-Where a member talks to their bee:
+### 🐝 Bee chat → `/chat`
 
-- **Pair once.** Paste your `BEE-XXXX` code (from the dashboard's Members tab) as a chat
-  message; the bee links this session to you and greets you by name.
-- **Chat.** Replies stream token by token. The bee grounds itself in the hive: it recalls
-  what it knows before answering and refuses to invent facts.
-- **Multiple conversations.** Each profile keeps separate named threads; history is stored
-  server-side so it survives a refresh or a new device.
-- **Voice mode.** Speech-to-text and text-to-speech via the browser Web Speech API, with a
-  mic-reactive orb.
-- **Slash commands.** `/me` (what the bee remembers about you), `/shared` (what it has shared
-  with others), `/forget` (drop the last thing), `/private <message>` (off the record — not
-  stored), `/nopoll` / `/pollme` (opt out of / into group polls), `/privacy set <rule>` (a
-  standing rule the disclosure agent must honour), `/constitution`, `/help`.
+Where a person talks to their bee. In the demo, the top-left **Profile** picker holds the three
+people. Switch it to become Alice, Bob, or Cara and you drop straight into that person's world.
 
-## Run it locally
+1. Pick a profile: **Alice**, **Bob**, or **Cara**.
+2. Read their past chats. Each person has a few conversations in the **Chats** list on the left.
+3. Type a new message and the bee replies live.
+4. Ask about someone else and watch what it will and will not tell you.
+
+![Bee chat](docs/images/chat.png)
+
+### 🖥️ Hive dashboard → `/`
+
+The operator's window into the brain. Tabs down the left side:
+
+- **Knowledge graph**: everything the hive has learned, drawn as a live map of people and things.
+- **Proactive**: who the hive wants to reach out to and why. Hit **Find connections** to make it hunt for new ones.
+- **Disclosures**: a receipt for every time info crossed between people, including what it held back.
+- **Polls**: ask the whole group something anonymously and get one answer back.
+- **Members**: the people, their invite codes, and whether each bee is online.
+- **Channels** and **Settings**: connect Telegram / Discord / iMessage, and pick which AI model does which job.
+
+![Knowledge graph](docs/images/graph.png)
+
+## What actually happens under the hood
+
+Every message a bee receives runs down the same little assembly line:
+
+```mermaid
+flowchart LR
+  T["chat turn"] --> E["extract facts<br/>an LLM reads it"]
+  E --> G[("knowledge graph<br/>SQLite")]
+  G --> R["recall,<br/>ground replies"]
+  G --> O["orchestrator,<br/>spot connections"]
+  O --> DA{"disclosure<br/>agent"}
+  DA -->|"safe to share"| N["nudge a person"]
+  DA -->|"private"| X["held back"]
+```
+
+Nothing is hardcoded. On the demo, the three bees replay a few real conversations on startup,
+and the graph, the disclosures, and the nudges all grow out of those chats.
+
+### The interesting part: keeping a secret
+
+Say Bob tells his bee he is planning a surprise party for Alice. That fact now lives in the
+hive. Then Alice asks her bee, "are Bob and Cara up to something?"
+
+```
+ Bob's bee   ─►  hive learns "surprise party for Alice"   (private to Bob)
+ Alice asks  ─►  hive runs the disclosure agent  ─►  withhold
+ Alice hears ─►  "I don't have anything on that"          (secret kept ✅)
+```
+
+The disclosure agent runs every time knowledge would cross between people. It can **share**,
+**partially share**, or **withhold**. It fails safe, so if anything goes wrong it withholds. And
+it writes down its reasoning every single time, which is what fills the Disclosures tab.
+
+![Disclosures](docs/images/disclosures.png)
+
+## What it can do
+
+- **Memory with a timeline.** Facts are stored with a validity range. When something changes, the old version is marked outdated instead of deleted, so there is history.
+- **Contextual-integrity disclosure.** The share-or-withhold judgment above, fully audited.
+- **Proactive reach-outs.** A heartbeat looks for introductions worth making and things you would want to know, with cooldowns and quiet hours so it does not get annoying.
+- **Ask your network.** Post an anonymous question to the group and get a synthesized answer back.
+- **Reach people anywhere.** Web chat always works. Telegram, Discord, and iMessage plug in too.
+- **Any model.** Anthropic, MiniMax, OpenAI-style endpoints, or local Ollama. Four jobs (chat, extraction, social, embeddings) can each run on a different one.
+- **Keys stay safe.** Provider keys are encrypted on disk, and bees never hold them.
+
+![Proactive](docs/images/proactive.png)
+
+## Running it yourself
+
+Most people will not need to. If you want to:
 
 ```bash
 pnpm install
-pnpm dev          # hive-server :4800, bee :4801, dashboard :5173, bee chat :5174
+pnpm dev          # dashboard on :5173, bee chat on :5174
 ```
 
-Then open the dashboard at **http://localhost:5173**:
+Add a model key in **Settings**, add a member in **Members**, and send that member's code in
+the chat to link. The full walkthrough is in [docs/SETUP.md](docs/SETUP.md).
 
-1. **Settings** → add a provider key, **Fetch models**, and assign the four roles.
-   (Local Ollama needs no key.)
-2. **Members** → add a member and copy their `BEE-XXXX` code.
-3. Open the bee chat at **http://localhost:5174**, send the code to link, and talk. Watch the
-   **Graph**, **Disclosures**, and **Proactive** tabs fill in.
+## Docs
 
-Seed a graph without conversations: `pnpm -C apps/hive-server seed`.
-
-## More docs
-
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — how the pipeline, disclosure, and
-  proactive systems actually work, with the data flow.
-- **[docs/HOSTING.md](docs/HOSTING.md)** — the hosted-demo build (single container behind
-  Caddy) and the current Render deployment.
-- **[docs/SETUP.md](docs/SETUP.md)** — operator and per-member setup, including channel bots.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the graph, disclosure, and proactive systems work.
+- [docs/HOSTING.md](docs/HOSTING.md): the single-container build and the current Render deployment.
+- [docs/SETUP.md](docs/SETUP.md): operator and member setup, including the channel bots.

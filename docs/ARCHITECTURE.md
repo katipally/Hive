@@ -4,15 +4,14 @@ How Hive works, end to end. This describes the code as it runs, not aspirations.
 
 ## Processes
 
-- **hive-server** (`apps/hive-server`, port 4800) — the brain. A Hono HTTP API plus two
+- **hive-server** (`apps/hive-server`, port 4800), the brain. A Hono HTTP API plus two
   WebSocket hubs: `/ws/bee` for bees and `/ws/dash` for dashboards. One SQLite database
   (`hive.db`).
-- **bee** (`apps/bee`, port 4801) — the runtime that hosts one or more bee instances and the
+- **bee** (`apps/bee`, port 4801), the runtime that hosts one or more bee instances and the
   channel adapters. Connects out to the hive over `/ws/bee`. Holds no provider keys.
-- **hive-dash** (`apps/hive-dash`, port 5173) and **bee-ui** (`apps/bee-ui`, port 5174) —
-  React single-page apps for the operator and the member. They talk to the servers over the
+- **hive-dash** (`apps/hive-dash`, port 5173) and **bee-ui** (`apps/bee-ui`, port 5174),   React single-page apps for the operator and the member. They talk to the servers over the
   same-origin HTTP/WS paths, so they work behind one reverse proxy in production.
-- **packages/shared** — the bee↔hive protocol types, the LLM client (provider adapters +
+- **packages/shared**, the bee↔hive protocol types, the LLM client (provider adapters +
   streaming), and the tool-using agent loop.
 
 ## Bee ↔ hive protocol
@@ -21,13 +20,13 @@ The bee opens a WebSocket to the hive and sends `hello` with its `beeId` and `be
 The hive stores the token on first contact (trust on first use) and rejects a mismatched
 token afterward. From then on the bee sends:
 
-- `identity.check` / `pair.attempt` — resolve or link a channel address (e.g. a web uid, a
+- `identity.check` / `pair.attempt`, resolve or link a channel address (e.g. a web uid, a
   Telegram user) to a member via an invite code.
-- `ingest.turn` — a conversation turn to record and learn from. The hive replies `ingest.ack`;
+- `ingest.turn`, a conversation turn to record and learn from. The hive replies `ingest.ack`;
   unacked turns are persisted to a durable outbox on the bee's disk and replayed on reconnect,
   so a restart never drops conversation from the graph.
-- `context.request` — ask the hive for grounding context before replying.
-- `nudge.result` — report whether a proactive nudge was delivered.
+- `context.request`, ask the hive for grounding context before replying.
+- `nudge.result`, report whether a proactive nudge was delivered.
 
 The hive pushes `nudge.deliver`, `channel.config`, and `identity.revoked` to the bee.
 

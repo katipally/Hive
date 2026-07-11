@@ -22,18 +22,18 @@ one origin.
 ```
 
 Both SPAs use same-origin relative paths, and their WebSocket code already picks `wss` on
-HTTPS, so no frontend URLs are hardcoded. The only ambiguity — both apps call `/api` — is
+HTTPS, so no frontend URLs are hardcoded. The only ambiguity, both apps call `/api`, is
 resolved by building the bee chat with `VITE_BEE_API=/bee-api`, which Caddy rewrites to the
 bee's `/api`.
 
 Files:
 
-- `Dockerfile` — installs deps, builds both SPAs, downloads the Caddy binary, copies the
+- `Dockerfile`, installs deps, builds both SPAs, downloads the Caddy binary, copies the
   Caddyfile + entrypoint.
-- `docker/Caddyfile` — the routing above.
-- `docker/entrypoint.sh` — starts hive-server and bee, then Caddy in the foreground; exits (so
+- `docker/Caddyfile`, the routing above.
+- `docker/entrypoint.sh`, starts hive-server and bee, then Caddy in the foreground; exits (so
   the host restarts) if any of the three dies.
-- `render.yaml` — the Render Blueprint.
+- `render.yaml`, the Render Blueprint.
 
 > **Caddy gotcha:** the official `caddy` Docker image ships its binary with Linux file
 > capabilities (`cap_net_bind_service`). Render's sandboxed runtime refuses to `exec` a file
@@ -45,13 +45,13 @@ Files:
 
 The hosted build runs in demo mode, driven by three environment flags:
 
-- `HIVE_DEMO=1` — the hive bakes the provider key + model roles from env, creates three
+- `HIVE_DEMO=1`, the hive bakes the provider key + model roles from env, creates three
   members, and kicks one orchestrator pass after the bees have seeded conversations.
-- `BEE_DEMO=1` — the bee runtime starts **one bee per member** (shown as switchable profiles),
+- `BEE_DEMO=1`, the bee runtime starts **one bee per member** (shown as switchable profiles),
   pins each bee to its member server-side, and replays a couple of realistic conversations per
   member on boot. The hive's graph, disclosures, and nudges are then built from those
-  conversations through the normal pipeline — nothing is hand-inserted.
-- `VITE_DEMO=1` — build flag for the bee chat SPA.
+  conversations through the normal pipeline, nothing is hand-inserted.
+- `VITE_DEMO=1`, build flag for the bee chat SPA.
 
 Because the free tier has no persistent disk, data is **re-seeded on every boot**; this is why
 the demo doesn't need a paid disk.
@@ -60,7 +60,7 @@ the demo doesn't need a paid disk.
 
 | Var | Purpose | Default |
 |-----|---------|---------|
-| `MINIMAX_API_KEY` | Baked-in provider key (set as a secret, never committed) | — |
+| `MINIMAX_API_KEY` | Baked-in provider key (set as a secret, never committed) |, |
 | `HIVE_DEMO` | Enable the hive demo bootstrap | `1` (render.yaml) |
 | `BEE_DEMO` | Enable the 3-bee demo runtime | `1` (entrypoint) |
 | `HIVE_DEMO_MODEL` | MiniMax model for chat/extraction/social | `MiniMax-M2` |
@@ -100,7 +100,7 @@ variables come from `render.yaml`.
 ## What is not hosted
 
 The **iMessage** channel reads a Mac's `chat.db` and sends via AppleScript, and the
-**Telegram/Discord** channels need bot tokens — all local-operator features. The hosted demo
+**Telegram/Discord** channels need bot tokens, all local-operator features. The hosted demo
 uses the **web** channel only.
 
 ## Run the container locally
