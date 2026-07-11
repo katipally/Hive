@@ -139,7 +139,26 @@ export function useBeeChat(beeId: string, sessionId: string, opts?: { onPaired?:
 
 // Each bee instance is a distinct person: give it its own web identity so
 // bee-1 pairs to one member+code and bee-2 to another, independently.
+// Hosted demo: instead of a random per-browser uid, chat AS a seeded member.
+// The bee pre-links `web-alice` / `web-bob` / `web-cara`, so picking an identity
+// here lands you straight in that member's world — no code to paste.
+export const DEMO: boolean = (import.meta.env as Record<string, string | undefined>).VITE_DEMO === "1";
+export const DEMO_NAMES = ["Alice", "Bob", "Cara"];
+export function demoIdentity(): string {
+  return localStorage.getItem("demo_identity") || "alice";
+}
+export function setDemoIdentity(name: string): void {
+  localStorage.setItem("demo_identity", name.toLowerCase());
+  // drop cached transcripts so the new identity starts from server truth, not the last one's
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i);
+    if (k?.startsWith("bee_msgs_")) localStorage.removeItem(k);
+  }
+  location.reload();
+}
+
 export function uidFor(beeId: string): string {
+  if (DEMO) return `web-${demoIdentity()}`;
   const k = `bee_uid_${beeId}`;
   let v = localStorage.getItem(k);
   if (!v) {

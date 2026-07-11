@@ -6,7 +6,7 @@
 //      never leak back to her.
 //   2. Proactive connection — Alice and Bob both love the outdoors and both want
 //      to go to Japan, a real introduction the orchestrator can surface.
-import { createMember, createPairingCode, linkIdentity, listMembers } from "./db/repo.js";
+import { createMember, createPairingCode, listMembers } from "./db/repo.js";
 import { upsertEntity, insertMemory, insertEdge } from "./graph/write.js";
 import { embedTexts, embeddingsConfigured } from "./llm/call.js";
 import { hasSecret, putSecret } from "./crypto/keystore.js";
@@ -22,7 +22,8 @@ export async function seedDemo(): Promise<{ name: string; code: string }[]> {
   const alice = createMember("Alice", "Europe/Berlin");
   const bob = createMember("Bob", "America/New_York");
   const cara = createMember("Cara", "Europe/London");
-  for (const m of [alice, bob, cara]) linkIdentity(m.id, "web", `seed_${m.name.toLowerCase()}`, m.name, null);
+  // No placeholder identity here — the bee's demo auto-pair links each member to a
+  // real web identity (`web-<name>`) with the live bee attached, so they show online.
 
   const facts: Record<string, string[]> = {
     [alice.id]: [

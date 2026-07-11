@@ -5,7 +5,7 @@ import { BeeMark } from "./Logo.js";
 import { ThemeToggle, useToast, Thinking, StatusDot, Avatar, ConfirmDialog } from "@hive/ui";
 import { cn } from "./lib/cn.js";
 import { dropdown } from "./lib/motion.js";
-import { useBeeChat, uidFor } from "./useBeeChat.js";
+import { useBeeChat, uidFor, DEMO, DEMO_NAMES, demoIdentity, setDemoIdentity } from "./useBeeChat.js";
 import { useVoice } from "./useVoice.js";
 import { VoiceMode } from "./VoiceMode.js";
 import { Settings } from "./Settings.js";
@@ -316,6 +316,21 @@ export function App() {
 
   return (
     <div className="relative z-10 flex h-dvh gap-2 bg-background p-2">
+      {DEMO && (
+        <div className="fixed left-1/2 top-2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-1.5 text-[12px] shadow-lg backdrop-blur">
+          <span className="text-faint">Demo · you are</span>
+          <select
+            value={demoIdentity()}
+            onChange={(e) => setDemoIdentity(e.target.value)}
+            aria-label="Choose who you are"
+            className="cursor-pointer appearance-none rounded-md border border-border bg-background px-2 py-0.5 font-medium text-fg outline-none hover:border-border-heavy"
+          >
+            {DEMO_NAMES.map((n) => (
+              <option key={n} value={n.toLowerCase()}>{n}</option>
+            ))}
+          </select>
+        </div>
+      )}
       {/* Conversation sidebar — one entry per bee, each its own history. */}
       {sidebarOpen ? (
         <aside className="flex w-60 shrink-0 flex-col px-1.5 py-1">

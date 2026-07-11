@@ -17,7 +17,7 @@ RUN pnpm install --frozen-lockfile
 # build the two SPAs. bee-ui is served under /chat and talks to the bee at /bee-api
 # so it never collides with the dashboard's own /api (which points at the hive).
 RUN pnpm -C apps/hive-dash build \
- && VITE_BEE_API=/bee-api pnpm -C apps/bee-ui exec vite build --base=/chat/ \
+ && VITE_BEE_API=/bee-api VITE_DEMO=1 pnpm -C apps/bee-ui exec vite build --base=/chat/ \
  && mkdir -p /srv/dash /srv/chat \
  && cp -r apps/hive-dash/dist/. /srv/dash/ \
  && cp -r apps/bee-ui/dist/. /srv/chat/
