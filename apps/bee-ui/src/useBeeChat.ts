@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { API_BASE } from "./config.js";
 
 export interface Msg {
   id: number;
@@ -7,11 +8,11 @@ export interface Msg {
 }
 
 let counter = Date.now();
-const msgsKey = (beeId: string) => `bee_msgs_${beeId}`;
+const msgsKey = (beeId: string, sessionId: string) => `bee_msgs_${beeId}_${sessionId}`;
 
-function loadMsgs(beeId: string): Msg[] {
+function loadMsgs(beeId: string, sessionId: string): Msg[] {
   try {
-    const raw = localStorage.getItem(msgsKey(beeId));
+    const raw = localStorage.getItem(msgsKey(beeId, sessionId));
     return raw ? (JSON.parse(raw) as Msg[]) : [];
   } catch {
     return [];
@@ -21,7 +22,7 @@ function loadMsgs(beeId: string): Msg[] {
 // All the bee's chat state in one place: the WebSocket, the message log
 // (persisted per bee so a refresh or bee-switch keeps history), and a
 // registerable onDone callback the voice engine uses to speak the reply.
-export function useBeeChat(beeId: string, opts?: { onPaired?: (name: string) => void; onError?: (msg: string) => void }) {
+export function useBeeChat(beeId: string, sessionId: string, opts?: { onPaired?: (name: string) => void; onError?: (msg: string) => void }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [connected, setConnected] = useState(false);
   const [thinking, setThinking] = useState(false);
@@ -34,28 +35,28 @@ export function useBeeChat(beeId: string, opts?: { onPaired?: (name: string) => 
   const setOnDone = useCallback((fn: ((text: string) => void) | null) => { onDoneRef.current = fn; }, []);
 
   useEffect(() => {
-    if (!beeId) return;
-    setMsgs(loadMsgs(beeId)); // instant paint from local cache…
+    if (!beeId || !sessionId) return;
+    setMsgs(loadMsgs(beeId, sessionId)); // instant paint from local cache…
 
     // …then reconcile with the server transcript (source of truth across devices).
     const uid = uidFor(beeId);
     let live = false;
-    fetch(`/api/history?bee=${beeId}&uid=${uid}`)
+    fetch(`${API_BASE}/history?bee=${beeId}&uid=${uid}&session=${sessionId}`)
       .then((r) => r.json())
-      .then((turns: { role: "user" | "assistant"; content: string }[]) => {
+      .then((turns: { role: string; content: string }[]) => {
         if (live || !Array.isArray(turns) || !turns.length) return;
-        setMsgs(turns.map((t) => ({ id: counter++, role: t.role === "assistant" ? "bee" : "user", text: t.content })));
+        // history now includes out-of-band messages (nudge/notice) — roles map 1:1
+        setMsgs(turns.map((t) => ({ id: counter++, role: t.role as Msg["role"], text: t.content })));
       })
       .catch(() => { /* offline — keep the local cache */ });
 
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/ws/chat?bee=${beeId}&uid=${uidFor(beeId)}`);
-    wsRef.current = ws;
-    streamingRef.current = false;
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => setConnected(false);
-    ws.onerror = () => optsRef.current?.onError?.("Connection error");
-    ws.onmessage = (e) => {
+    // Auto-reconnecting socket: a dev reload or network blip must never leave the
+    // chat permanently "offline" (it used to, with no retry). Backoff, then resume.
+    let closed = false;
+    let backoff = 500;
+    let ws: WebSocket;
+
+    const onMessage = (e: MessageEvent) => {
       live = true; // a live turn started — don't let a late history fetch clobber it
       const m = JSON.parse(e.data) as { type: string; text: string };
       setMsgs((prev) => {
@@ -85,22 +86,39 @@ export function useBeeChat(beeId: string, opts?: { onPaired?: (name: string) => 
         return prev;
       });
     };
-    return () => ws.close();
-  }, [beeId]);
+
+    const connect = () => {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${proto}://${location.host}/ws/chat?bee=${beeId}&uid=${uid}&session=${sessionId}`);
+      wsRef.current = ws;
+      streamingRef.current = false;
+      ws.onopen = () => { backoff = 500; setConnected(true); };
+      ws.onmessage = onMessage;
+      ws.onerror = () => { /* let onclose drive the retry; no scary toast */ };
+      ws.onclose = () => {
+        setConnected(false);
+        if (closed) return;
+        setTimeout(connect, backoff);
+        backoff = Math.min(backoff * 2, 10_000);
+      };
+    };
+    connect();
+    return () => { closed = true; ws?.close(); };
+  }, [beeId, sessionId]);
 
   // Persist the log for this bee whenever it changes (cap to keep storage sane).
   useEffect(() => {
-    if (!beeId) return;
+    if (!beeId || !sessionId) return;
     try {
-      localStorage.setItem(msgsKey(beeId), JSON.stringify(msgs.slice(-200)));
+      localStorage.setItem(msgsKey(beeId, sessionId), JSON.stringify(msgs.slice(-200)));
     } catch { /* quota — non-fatal */ }
-  }, [beeId, msgs]);
+  }, [beeId, sessionId, msgs]);
 
   const clear = useCallback(() => {
-    if (!beeId) return;
-    try { localStorage.removeItem(msgsKey(beeId)); } catch { /* noop */ }
+    if (!beeId || !sessionId) return;
+    try { localStorage.removeItem(msgsKey(beeId, sessionId)); } catch { /* noop */ }
     setMsgs([]);
-  }, [beeId]);
+  }, [beeId, sessionId]);
 
   const send = useCallback((text: string) => {
     const t = text.trim();

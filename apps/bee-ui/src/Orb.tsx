@@ -2,16 +2,17 @@ import { useEffect, useRef } from "react";
 
 export type BeePhase = "idle" | "listening" | "thinking" | "speaking";
 
-// Per-state color so the orb signals what's happening: green while it listens,
-// honey while it speaks (the brand), ember while it thinks, calm warm when idle.
+// Per-state color so the orb signals what's happening, aligned to the semantic
+// palette: share-green while it listens, accent-blue while it speaks, arc-orange
+// while it thinks (the "working" color), calm warm neutral when idle.
 function colorsFor(phase: BeePhase): { core: string; ring: string; glow: string } {
   switch (phase) {
     case "listening": // green — hearing you
       return { core: "radial-gradient(circle at 40% 35%, #d6f9e4, #56cf8c 55%, #2f9a63 82%)", ring: "rgba(74,222,128,0.55)", glow: "rgba(74,222,128,0.40)" };
     case "speaking": // blue accent — talking
       return { core: "radial-gradient(circle at 40% 35%, #d6e6ff, #5b9dff 55%, #3f74d0 82%)", ring: "rgba(91,157,255,0.55)", glow: "rgba(91,157,255,0.42)" };
-    case "thinking": // ember — working
-      return { core: "radial-gradient(circle at 40% 35%, #ffe0c0, #ef8f3f 55%, #c9601f 82%)", ring: "rgba(226,112,31,0.55)", glow: "rgba(226,112,31,0.40)" };
+    case "thinking": // arc orange — working
+      return { core: "radial-gradient(circle at 40% 35%, #ffe0c0, #ff8a3d 55%, #c9601f 82%)", ring: "rgba(255,138,61,0.55)", glow: "rgba(255,138,61,0.40)" };
     default: // idle — calm warm neutral
       return { core: "radial-gradient(circle at 40% 35%, #efe6d2, #cbb98f 55%, #a2916b 80%)", ring: "rgba(200,180,130,0.42)", glow: "rgba(200,180,130,0.32)" };
   }

@@ -54,12 +54,10 @@ Then open the dashboard at **http://localhost:5173**:
 ## Verify it works
 
 ```bash
-# deterministic end-to-end test against a mock LLM (no keys needed):
-pkill -f hive-server; pkill -f apps/bee
-HIVE_MOCK_LLM=1 HIVE_EXTRACT_IDLE_MS=1200 HIVE_DATA_DIR=/tmp/hive-smoke pnpm -C apps/hive-server start &
-BEE_DATA_DIR=/tmp/bee-smoke pnpm -C apps/bee start &
-sleep 6
-pnpm -C apps/hive-server smoke
+# end-to-end test against a real model. Boots a throwaway hive+bee on ports
+# 4900/4901 (won't touch a running `pnpm dev`), runs the flow, tears down.
+# Skips cleanly if no key is set.
+HIVE_TEST_API_KEY=sk-... pnpm smoke
 ```
 
 The smoke test verifies: pairing → chat → extraction → temporal invalidation → cross-member disclosure (birthday shared, surprise withheld, no leak) → proactive nudge delivered out-of-conversation → dedup suppression.
@@ -69,6 +67,13 @@ Seed a demo graph without conversations:
 ```bash
 HIVE_DATA_DIR=./apps/hive-server/hive-data pnpm -C apps/hive-server seed
 ```
+
+## Hosted demo
+
+A single Docker image (hive + web-only bee behind Caddy) serves the dashboard and web
+chat from one origin, seeds a friend-group scenario on boot, and runs against a baked-in
+provider key. Deploy free on Render — see **[DEPLOY.md](./DEPLOY.md)**. The macOS iMessage
+and Telegram/Discord channels are local-operator only and are not part of the hosted build.
 
 ## Data & privacy
 - All secrets are AES-256-GCM encrypted with `hive-data/master.key` (created on first boot, `0600`). No plaintext keys on disk, ever.

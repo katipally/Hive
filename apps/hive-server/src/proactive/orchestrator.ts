@@ -3,10 +3,18 @@ import { callRoleJson } from "../llm/call.js";
 import { ORCHESTRATOR_SYSTEM, orchestratorUser } from "../prompts/proactive.js";
 import { sharedInterests, memberBriefs } from "../graph/social.js";
 import { proposeCandidate } from "./nudges.js";
+import { startPoll } from "../polling/polls.js";
+import { getDb } from "../db/db.js";
 import { logActivity } from "../activity.js";
 
 interface OrchestratorOut {
   opportunities: { recipient: string; about: string; reason: string; topic: string }[];
+  polls?: { for: string; topic: string; question: string }[];
+}
+
+// don't stack autonomous polls — one open collecting poll at a time is plenty
+function hasOpenPoll(): boolean {
+  return !!getDb().db.prepare("SELECT 1 FROM polls WHERE status='collecting' LIMIT 1").get();
 }
 
 // Scans the whole group for opportunities to connect / help / celebrate.
@@ -23,6 +31,7 @@ export async function runOrchestrator(): Promise<void> {
     out = await callRoleJson<OrchestratorOut>("social", {
       system: ORCHESTRATOR_SYSTEM,
       messages: [{ role: "user", content: orchestratorUser(briefs, shared) }],
+      validate: (v): boolean => !!v && Array.isArray((v as { opportunities?: unknown }).opportunities),
     });
   } catch (e) {
     logActivity("error", null, { stage: "orchestrator", error: (e as Error).message });
@@ -48,5 +57,19 @@ export async function runOrchestrator(): Promise<void> {
       topic: `group:${op.topic || "connect"}`,
       sourceMemoryIds: ["orchestrator"],
     });
+  }
+
+  // autonomous polling — at most one, never stacked. Needs ≥3 members to be worth it.
+  const polls = out.polls ?? [];
+  if (polls.length && members.length >= 3 && !hasOpenPoll()) {
+    const poll = polls[0]!;
+    if (poll.question?.trim()) {
+      const forMember = poll.for && poll.for.toLowerCase() !== "none" ? getMemberByName(poll.for) : null;
+      await startPoll({
+        initiatorMemberId: forMember?.id ?? null,
+        topic: poll.topic?.trim() || poll.question.trim().slice(0, 60),
+        question: poll.question.trim(),
+      });
+    }
   }
 }

@@ -12,6 +12,7 @@ export function createMember(name: string, timezone = "UTC"): Member {
     quietHoursEnd: null,
     preferredChannelIdentityId: null,
     lastHeartbeatAt: null,
+    optOutOfPolling: false,
     createdAt: Date.now(),
   };
   getDb()
@@ -31,6 +32,7 @@ function rowToMember(r: Record<string, unknown>): Member {
     quietHoursEnd: (r["quiet_hours_end"] as string) ?? null,
     preferredChannelIdentityId: (r["preferred_channel_identity_id"] as string) ?? null,
     lastHeartbeatAt: (r["last_heartbeat_at"] as number) ?? null,
+    optOutOfPolling: !!(r["opt_out_polling"] as number),
     createdAt: r["created_at"] as number,
   };
 }
@@ -59,7 +61,7 @@ export function listMembers(): Member[] {
 export function updateMember(
   memberId: string,
   fields: Partial<
-    Pick<Member, "name" | "timezone" | "quietHoursStart" | "quietHoursEnd" | "preferredChannelIdentityId">
+    Pick<Member, "name" | "timezone" | "quietHoursStart" | "quietHoursEnd" | "preferredChannelIdentityId" | "optOutOfPolling">
   >,
 ): Member | null {
   const cur = getMember(memberId);
@@ -68,14 +70,45 @@ export function updateMember(
   getDb()
     .db.prepare(
       `UPDATE members SET name=@name, timezone=@timezone, quiet_hours_start=@quietHoursStart,
-       quiet_hours_end=@quietHoursEnd, preferred_channel_identity_id=@preferredChannelIdentityId WHERE id=@id`,
+       quiet_hours_end=@quietHoursEnd, preferred_channel_identity_id=@preferredChannelIdentityId,
+       opt_out_polling=@optOutOfPolling WHERE id=@id`,
     )
-    .run(next);
+    .run({ ...next, optOutOfPolling: next.optOutOfPolling ? 1 : 0 });
   return next;
 }
 
 export function touchHeartbeat(memberId: string): void {
   getDb().db.prepare("UPDATE members SET last_heartbeat_at = ? WHERE id = ?").run(Date.now(), memberId);
+}
+
+// Remove a member and everything that belongs to them. Order respects foreign
+// keys; shared entities are left in place (they may belong to the whole hive).
+export function deleteMember(memberId: string): boolean {
+  const db = getDb().db;
+  const exists = db.prepare("SELECT 1 FROM members WHERE id=?").get(memberId);
+  if (!exists) return false;
+  const mems = "(SELECT id FROM memories WHERE member_id=@m)";
+  db.transaction(() => {
+    db.prepare("UPDATE memories SET superseded_by=NULL WHERE member_id=@m").run({ m: memberId });
+    db.prepare(`DELETE FROM edges WHERE source_memory_id IN ${mems} OR invalidated_by_memory_id IN ${mems}`).run({ m: memberId });
+    db.prepare("DELETE FROM poll_asks WHERE member_id=@m OR poll_id IN (SELECT id FROM polls WHERE initiator_member_id=@m)").run({ m: memberId });
+    db.prepare("DELETE FROM polls WHERE initiator_member_id=@m").run({ m: memberId });
+    db.prepare("DELETE FROM disclosures WHERE from_member_id=@m OR to_member_id=@m").run({ m: memberId });
+    db.prepare("DELETE FROM nudges WHERE member_id=@m").run({ m: memberId });
+    db.prepare("DELETE FROM memories WHERE member_id=@m").run({ m: memberId });
+    db.prepare("DELETE FROM turns WHERE member_id=@m").run({ m: memberId });
+    db.prepare("DELETE FROM entities WHERE member_id=@m").run({ m: memberId });
+    db.prepare("DELETE FROM channel_identities WHERE member_id=@m").run({ m: memberId });
+    db.prepare("DELETE FROM pairing_codes WHERE member_id=@m").run({ m: memberId });
+    db.prepare("DELETE FROM activity_log WHERE member_id=@m").run({ m: memberId });
+    db.prepare("DELETE FROM members WHERE id=@m").run({ m: memberId });
+  })();
+  return true;
+}
+
+// The channel identities for a member (used to notify their bee on removal).
+export function memberIdentityIds(memberId: string): string[] {
+  return (getDb().db.prepare("SELECT id FROM channel_identities WHERE member_id=?").all(memberId) as { id: string }[]).map((r) => r.id);
 }
 
 // ---- pairing codes ----
@@ -170,6 +203,15 @@ export function getIdentity(id: string): ChannelIdentity | null {
     | Record<string, unknown>
     | undefined;
   return r ? rowToIdentity(r) : null;
+}
+
+// The channel to reach a member on: their preferred identity, else the first linked one.
+export function pickIdentity(member: Member): ChannelIdentity | null {
+  if (member.preferredChannelIdentityId) {
+    const ci = getIdentity(member.preferredChannelIdentityId);
+    if (ci) return ci;
+  }
+  return listIdentities(member.id)[0] ?? null;
 }
 
 // ---- bees ----

@@ -16,6 +16,7 @@ export interface Member {
   quietHoursEnd: string | null;
   preferredChannelIdentityId: string | null;
   lastHeartbeatAt: number | null;
+  optOutOfPolling: boolean; // member refuses to be a source others' polls draw on
   createdAt: number;
 }
 
@@ -111,8 +112,39 @@ export type ActivityType =
   | "implication"
   | "disclosure"
   | "nudge"
+  | "poll"
   | "heartbeat_pass"
   | "error";
+
+// ---- ask-your-network polling ----
+export type PollStatus = "collecting" | "synthesizing" | "done" | "cancelled";
+
+export interface Poll {
+  id: string;
+  initiatorMemberId: string | null; // null = autonomous (hive-initiated)
+  topic: string;
+  question: string; // the underlying intent (what we actually want to learn)
+  status: PollStatus;
+  anonymized: boolean;
+  synthesis: string | null;
+  closesAt: number | null;
+  createdAt: number;
+}
+
+export interface PollAsk {
+  id: string;
+  pollId: string;
+  memberId: string;
+  question: string; // the anonymized question actually sent to this friend
+  answer: string | null;
+  deliveredAt: number | null;
+  answeredAt: number | null;
+}
+
+// Poll + its per-friend asks, for the operator dashboard.
+export interface PollDetail extends Poll {
+  asks: PollAsk[];
+}
 
 export interface ActivityEntry {
   id: string;

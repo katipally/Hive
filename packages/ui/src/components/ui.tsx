@@ -1,4 +1,5 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import { useEffect, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { Sparkles } from "lucide-react";
 import { cn } from "../lib/cn.js";
 
 export function Button({
@@ -10,7 +11,7 @@ export function Button({
     <button
       className={cn(
         "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium transition disabled:opacity-30 disabled:pointer-events-none",
-        variant === "primary" && "bg-accent text-white hover:brightness-110 shadow-[0_2px_14px_-4px_rgba(47,111,237,0.55)]",
+        variant === "primary" && "bg-accent text-white hover:brightness-110 shadow-[var(--shadow-accent)]",
         variant === "ghost" && "border border-border bg-card text-fg hover:border-border-heavy hover:bg-fg/[0.04]",
         variant === "subtle" && "text-muted hover:bg-fg/[0.06] hover:text-fg",
         variant === "danger" && "border border-withhold/40 bg-withhold/10 text-withhold hover:bg-withhold/20",
@@ -38,7 +39,7 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   return (
     <input
       className={cn(
-        "w-full rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-fg outline-none placeholder:text-faint focus:border-honey/50 transition-colors",
+        "w-full rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-fg outline-none placeholder:text-faint focus:border-accent/50 transition-colors",
         className,
       )}
       {...props}
@@ -50,7 +51,7 @@ export function Select({ className, children, ...props }: SelectHTMLAttributes<H
   return (
     <select
       className={cn(
-        "rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-fg outline-none focus:border-honey/50 transition-colors cursor-pointer",
+        "rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-fg outline-none focus:border-accent/50 transition-colors cursor-pointer",
         className,
       )}
       {...props}
@@ -74,13 +75,13 @@ export function Pill({
   children,
   className,
 }: {
-  tone?: "muted" | "honey" | "share" | "partial" | "withhold" | "live";
+  tone?: "muted" | "accent" | "share" | "partial" | "withhold" | "live";
   children: ReactNode;
   className?: string;
 }) {
   const tones: Record<string, string> = {
     muted: "bg-fg/[0.06] text-muted",
-    honey: "bg-honey-soft text-honey",
+    accent: "bg-accent-soft text-accent",
     share: "bg-share/15 text-share",
     partial: "bg-partial/15 text-partial",
     withhold: "bg-withhold/15 text-withhold",
@@ -144,5 +145,61 @@ export function SkeletonRows({ rows = 3 }: { rows?: number }) {
         <div key={i} className="skeleton h-14 rounded-xl" />
       ))}
     </div>
+  );
+}
+
+// The single "the AI is working" indicator, used everywhere (chat, voice, dash).
+// State-labeled: pass `label` for a specific op ("asking 3 of your friends…");
+// with no label it gently cycles so a spinner never reads as "stalled".
+const THINKING_CYCLE = ["thinking…", "connecting the dots…", "gathering my thoughts…"];
+export function Thinking({ label, className }: { label?: string; className?: string }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (label) return;
+    const t = setInterval(() => setI((v) => (v + 1) % THINKING_CYCLE.length), 2400);
+    return () => clearInterval(t);
+  }, [label]);
+  return (
+    <span
+      className={cn("inline-flex items-center gap-1.5 text-[13px] font-medium", className)}
+      role="status"
+      aria-live="polite"
+    >
+      <Sparkles size={13} className="shrink-0 text-accent" />
+      <span className="thinking-shimmer">{label ?? THINKING_CYCLE[i]}</span>
+    </span>
+  );
+}
+
+// Connection/presence dot — the green glow-dot that was copy-pasted in 3 places.
+export function StatusDot({ online, className }: { online: boolean; className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "size-2 rounded-full",
+        online ? "bg-share shadow-[0_0_8px_var(--color-share)]" : "bg-faint",
+        className,
+      )}
+    />
+  );
+}
+
+// Initials avatar on the accent→arc gradient (tokenized, so it adapts to theme).
+export function Avatar({ name, size = 36, className }: { name: string; size?: number; className?: string }) {
+  const initials =
+    name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
+  return (
+    <span
+      className={cn("inline-grid shrink-0 place-items-center rounded-full font-semibold text-white select-none", className)}
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.4),
+        background: "linear-gradient(135deg, var(--color-accent), var(--color-arc))",
+      }}
+    >
+      {initials}
+    </span>
   );
 }

@@ -8,10 +8,11 @@ import {
   updateMember,
   createPairingCode,
   listIdentities,
+  deleteMember,
 } from "../db/repo.js";
 import { beeOnline, listBees, sendToBee } from "../ws/bee-hub.js";
 import { recentActivity } from "../activity.js";
-import { putSecret, last4, hasSecret, deleteSecret, getSecret } from "../crypto/keystore.js";
+import { putSecret, last4, hasSecret, deleteSecret, getSecret, listSecretNames } from "../crypto/keystore.js";
 import {
   getModelRoles,
   setModelRole,
@@ -24,10 +25,13 @@ import {
   setPrivacyPref,
   getBeeSettings,
   setBeeSettings,
+  getChannelInfo,
+  setChannelInfo,
+  clearChannelInfo,
 } from "../settings/settings.js";
 import { PROVIDERS, PROVIDER_IDS, listModels, streamByFamily } from "@hive/shared/llm";
-import { isMock, mockComplete } from "../llm/mock.js";
 import type { Message, ProviderId, ThinkingLevel, ToolSpec } from "@hive/shared/llm";
+import { CONSTITUTION } from "@hive/shared";
 import type { ModelRole } from "@hive/shared";
 import { readGraph, inspectEntity } from "../graph/read.js";
 import { deleteMemory, deleteEntity, forgetLastMemory } from "../graph/write.js";
@@ -38,13 +42,16 @@ import { getDb } from "../db/db.js";
 import { broadcastDash } from "../ws/dash-hub.js";
 import { listDisclosures, disclosuresFromMember } from "../disclosure/store.js";
 import { listNudges, setNudgeStatus, setNudgeFeedback } from "../proactive/store.js";
-import { deliverNudgeById } from "../proactive/nudges.js";
+import { scheduleDelivery, undoNudge } from "../proactive/nudges.js";
+import { startPoll, cancelPoll, synthesizePoll } from "../polling/polls.js";
+import { listPollDetails } from "../polling/store.js";
 
 export function buildApi(version: string): Hono {
   const app = new Hono();
   app.use("*", cors());
 
   app.get("/api/health", (c) => c.json({ ok: true, version }));
+  app.get("/api/constitution", (c) => c.json({ text: CONSTITUTION }));
 
   // ---- members ----
   app.get("/api/members", (c) =>
@@ -68,7 +75,17 @@ export function buildApi(version: string): Hono {
   app.patch("/api/members/:id", async (c) => {
     const body = await c.req.json();
     const m = updateMember(c.req.param("id"), body);
+    if (m) broadcastDash({ type: "member.updated", member: m }); // was never broadcast → dash didn't live-refresh
     return m ? c.json(m) : c.json({ error: "not found" }, 404);
+  });
+  app.delete("/api/members/:id", (c) => {
+    const id = c.req.param("id");
+    const identities = listIdentities(id); // capture before delete
+    if (!deleteMember(id)) return c.json({ error: "not found" }, 404);
+    // tell each owning bee to forget this member's channel identities
+    for (const ci of identities) if (ci.beeId) sendToBee(ci.beeId, { type: "identity.revoked", channelIdentityId: ci.id });
+    broadcastDash({ type: "graph.dirty" });
+    return c.json({ ok: true });
   });
   app.get("/api/members/:id/code", (c) => {
     const m = getMember(c.req.param("id"));
@@ -76,7 +93,14 @@ export function buildApi(version: string): Hono {
   });
 
   // ---- bees & channel config ----
-  app.get("/api/bees", (c) => c.json(listBees()));
+  app.get("/api/bees", (c) =>
+    c.json(
+      listBees().map((b) => ({
+        ...b,
+        channels: listSecretNames(`bee:${b.beeId}:channel:`).map((n) => n.split(":").pop()),
+      })),
+    ),
+  );
   app.put("/api/bees/:beeId/channels/:channel", async (c) => {
     const beeId = c.req.param("beeId");
     const channel = c.req.param("channel");
@@ -84,7 +108,34 @@ export function buildApi(version: string): Hono {
     const config = await c.req.json<Record<string, unknown>>();
     putSecret(`bee:${beeId}:channel:${channel}`, JSON.stringify(config));
     const pushed = sendToBee(beeId, { type: "channel.config", channel: channel as never, config });
+    await captureChannelInfo(channel, config); // record the public join address
     return c.json({ ok: true, pushed });
+  });
+  app.delete("/api/bees/:beeId/channels/:channel", (c) => {
+    const beeId = c.req.param("beeId");
+    const channel = c.req.param("channel");
+    if (!["telegram", "discord", "imessage"].includes(channel)) return c.json({ error: "bad channel" }, 400);
+    deleteSecret(`bee:${beeId}:channel:${channel}`);
+    clearChannelInfo(channel as "telegram" | "discord" | "imessage");
+    // tell the bee to stop the adapter (empty/disabled config)
+    const pushed = sendToBee(beeId, { type: "channel.config", channel: channel as never, config: { enabled: false } });
+    return c.json({ ok: true, pushed });
+  });
+  // Public join addresses (bot links / iMessage handle) for member invites.
+  // Backfills Telegram/Discord from already-configured bots (setups made before
+  // this existed) so existing hives get real links without re-entering tokens.
+  app.get("/api/channel-info", async (c) => {
+    const info = getChannelInfo();
+    if (!info.telegram || !info.discord) {
+      for (const name of getDb().db.prepare("SELECT name FROM secrets WHERE name LIKE 'bee:%:channel:%'").all() as { name: string }[]) {
+        const ch = name.name.split(":").pop();
+        if ((ch === "telegram" && !info.telegram) || (ch === "discord" && !info.discord)) {
+          const cfg = safeJson(getSecret(name.name));
+          if (cfg && typeof cfg["botToken"] === "string") await captureChannelInfo(ch, cfg);
+        }
+      }
+    }
+    return c.json(getChannelInfo());
   });
 
   // ---- providers / keys ----
@@ -152,7 +203,8 @@ export function buildApi(version: string): Hono {
   // ---- LLM proxy (bee-authenticated) SSE ----
   app.post("/api/llm/chat", async (c) => {
     const token = c.req.header("x-bee-token");
-    if (!token || !beeTokenValid(token)) return c.json({ error: "unauthorized" }, 401);
+    const beeId = c.req.header("x-bee-id");
+    if (!token || !beeId || !beeTokenValid(beeId, token)) return c.json({ error: "unauthorized" }, 401);
     const body = await c.req.json<{
       role: ModelRole;
       system?: string;
@@ -160,13 +212,6 @@ export function buildApi(version: string): Hono {
       thinkingLevel?: ThinkingLevel;
       tools?: ToolSpec[];
     }>();
-    if (isMock()) {
-      return streamSSE(c, async (stream) => {
-        const text = mockComplete(body.role ?? "chat", body.system, body.messages);
-        await stream.writeSSE({ data: JSON.stringify({ type: "text_delta", text }) });
-        await stream.writeSSE({ data: JSON.stringify({ type: "done" }) });
-      });
-    }
     let resolved;
     try {
       resolved = resolveRole(body.role ?? "chat");
@@ -226,9 +271,11 @@ export function buildApi(version: string): Hono {
 
   // ---- member transparency ----
   app.get("/api/members/:id/memories", (c) => {
+    const limit = Math.min(Number(c.req.query("limit") ?? 100), 500);
+    const offset = Number(c.req.query("offset") ?? 0);
     const rows = getDb()
-      .db.prepare("SELECT id,kind,text,salience,created_at FROM memories WHERE member_id=? ORDER BY created_at DESC")
-      .all(c.req.param("id"));
+      .db.prepare("SELECT id,kind,text,salience,created_at FROM memories WHERE member_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?")
+      .all(c.req.param("id"), limit, offset);
     return c.json(rows);
   });
   app.get("/api/members/:id/shared", (c) => c.json(disclosuresFromMember(c.req.param("id"))));
@@ -247,28 +294,6 @@ export function buildApi(version: string): Hono {
     return c.json(getBeeSettings(c.req.param("id")));
   });
 
-  // ---- onboarding status ----
-  app.get("/api/status", (c) => {
-    const db = getDb().db;
-    const anyKey = getSecretsByPrefix("provider:").length > 0;
-    const roles = getModelRoles();
-    const rolesConfigured = ["chat", "extraction", "social", "embeddings"].every((r) => (roles as Record<string, unknown>)[r]);
-    const memberCount = (db.prepare("SELECT COUNT(*) c FROM members").get() as { c: number }).c;
-    const linkedCount = (db.prepare("SELECT COUNT(DISTINCT member_id) c FROM channel_identities").get() as { c: number }).c;
-    return c.json({ anyKey, rolesConfigured, memberCount, linkedCount });
-  });
-  app.get("/api/stats", (c) => {
-    const db = getDb().db;
-    const one = (q: string) => (db.prepare(q).get() as { c: number }).c;
-    return c.json({
-      members: one("SELECT COUNT(*) c FROM members"),
-      memories: one("SELECT COUNT(*) c FROM memories"),
-      entities: one("SELECT COUNT(*) c FROM entities"),
-      edges: one("SELECT COUNT(*) c FROM edges WHERE invalidated_at IS NULL"),
-      nudgesSent: one("SELECT COUNT(*) c FROM nudges WHERE status='sent'"),
-      disclosures: one("SELECT COUNT(*) c FROM disclosures"),
-    });
-  });
   app.post("/api/members/:id/digest", async (c) => {
     const ok = await sendDigest(c.req.param("id"));
     return c.json({ ok });
@@ -278,23 +303,54 @@ export function buildApi(version: string): Hono {
     await runOrchestrator();
     return c.json({ ok: true });
   });
-  app.get("/api/activity", (c) => c.json(recentActivity(Number(c.req.query("limit") ?? 100))));
-  app.get("/api/disclosures", (c) => c.json(listDisclosures(Number(c.req.query("limit") ?? 200))));
-  app.get("/api/nudges", (c) => c.json(listNudges(Number(c.req.query("limit") ?? 200))));
+  const off = (c: { req: { query: (k: string) => string | undefined } }) => Number(c.req.query("offset") ?? 0);
+  app.get("/api/activity", (c) => c.json(recentActivity(Number(c.req.query("limit") ?? 100), off(c))));
+  app.get("/api/disclosures", (c) => c.json(listDisclosures(Number(c.req.query("limit") ?? 200), off(c))));
+  app.get("/api/nudges", (c) => c.json(listNudges(Number(c.req.query("limit") ?? 200), off(c))));
   app.post("/api/nudges/:id/feedback", async (c) => {
     const { helpful } = await c.req.json<{ helpful: boolean }>();
     setNudgeFeedback(c.req.param("id"), !!helpful);
     return c.json({ ok: true });
   });
-  app.post("/api/nudges/:id/:action", async (c) => {
+  // ---- ask-your-network polling ----
+  app.get("/api/polls", (c) => c.json(listPollDetails(Number(c.req.query("limit") ?? 100))));
+  app.post("/api/polls", async (c) => {
+    const { topic, question, initiatorMemberId, ttlMs } = await c.req.json<{
+      topic: string;
+      question: string;
+      initiatorMemberId?: string | null;
+      ttlMs?: number;
+    }>();
+    if (!question?.trim()) return c.json({ error: "question required" }, 400);
+    const poll = await startPoll({
+      initiatorMemberId: initiatorMemberId ?? null,
+      topic: topic?.trim() || question.trim().slice(0, 60),
+      question: question.trim(),
+      ttlMs,
+    });
+    return c.json(poll);
+  });
+  app.post("/api/polls/:id/cancel", (c) => {
+    cancelPoll(c.req.param("id"));
+    return c.json({ ok: true });
+  });
+  app.post("/api/polls/:id/synthesize", async (c) => {
+    await synthesizePoll(c.req.param("id"));
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/nudges/:id/:action", (c) => {
     const action = c.req.param("action");
     const nid = c.req.param("id");
-    if (action !== "approve" && action !== "dismiss") return c.json({ error: "bad action" }, 400);
     if (action === "approve") {
       setNudgeStatus(nid, "queued");
-      await deliverNudgeById(nid);
-    } else {
+      scheduleDelivery(nid); // holds for the undo window, then sends
+    } else if (action === "undo") {
+      return c.json({ ok: true, undone: undoNudge(nid) });
+    } else if (action === "dismiss") {
       setNudgeStatus(nid, "dismissed");
+    } else {
+      return c.json({ error: "bad action" }, 400);
     }
     return c.json({ ok: true });
   });
@@ -302,18 +358,51 @@ export function buildApi(version: string): Hono {
   return app;
 }
 
-function beeTokenValid(token: string): boolean {
-  // any registered bee token matches (localhost trust domain)
-  const rows = getSecretsByPrefix("bee:");
-  return rows.some((v) => v === token);
+// Record how members can reach a channel: Telegram's @username (from getMe),
+// a Discord bot invite (derived from the token), or the Mac's iMessage handle.
+async function captureChannelInfo(channel: string, config: Record<string, unknown>): Promise<void> {
+  const token = typeof config["botToken"] === "string" ? (config["botToken"] as string) : "";
+  if (channel === "telegram" && token) {
+    try {
+      const me = (await fetch(`https://api.telegram.org/bot${token}/getMe`).then((r) => r.json())) as {
+        result?: { username?: string };
+      };
+      if (me.result?.username) setChannelInfo({ telegram: { username: me.result.username } });
+    } catch {
+      /* couldn't reach Telegram now — the token still works; link can be re-fetched */
+    }
+  } else if (channel === "discord" && token) {
+    const clientId = discordClientId(token);
+    if (clientId)
+      setChannelInfo({
+        discord: { inviteUrl: `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot&permissions=274877975552` },
+      });
+  } else if (channel === "imessage" && typeof config["handle"] === "string") {
+    const handle = (config["handle"] as string).trim();
+    if (handle) setChannelInfo({ imessage: { handle } });
+  }
 }
 
-// small helper: read all bee token secrets
-function getSecretsByPrefix(prefix: string): string[] {
-  const names = (
-    getDb().db.prepare("SELECT name FROM secrets WHERE name LIKE ?").all(`${prefix}%`) as {
-      name: string;
-    }[]
-  ).map((r) => r.name);
-  return names.map((n) => getSecret(n)).filter((v): v is string => !!v);
+function safeJson(s: string | null): Record<string, unknown> | null {
+  if (!s) return null;
+  try {
+    return JSON.parse(s) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+// The first segment of a Discord bot token is the base64-encoded application id.
+function discordClientId(token: string): string | null {
+  try {
+    const id = Buffer.from(token.split(".")[0] ?? "", "base64").toString("utf8").replace(/\D/g, "");
+    return id.length >= 17 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function beeTokenValid(beeId: string, token: string): boolean {
+  // token must match THIS bee's stored token (set on first WS hello, TOFU per bee)
+  return getSecret(`bee:${beeId}:token`) === token;
 }

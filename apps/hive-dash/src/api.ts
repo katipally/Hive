@@ -25,6 +25,41 @@ export interface MemberRow {
   }[];
 }
 
+export interface ChannelInfo {
+  telegram?: { username: string };
+  discord?: { inviteUrl: string };
+  imessage?: { handle: string };
+}
+
+export interface BeeRow {
+  beeId: string;
+  online: boolean;
+  primary: boolean; // the canonical hive bee that hosts the shared channel bots
+  channels: string[]; // configured channel names (telegram/discord/imessage)
+}
+
+export interface PollAskRow {
+  id: string;
+  memberId: string;
+  question: string;
+  answer: string | null;
+  deliveredAt: number | null;
+  answeredAt: number | null;
+}
+
+export interface PollRow {
+  id: string;
+  initiatorMemberId: string | null;
+  topic: string;
+  question: string;
+  status: "collecting" | "synthesizing" | "done" | "cancelled";
+  anonymized: boolean;
+  synthesis: string | null;
+  closesAt: number | null;
+  createdAt: number;
+  asks: PollAskRow[];
+}
+
 export interface ProviderRow {
   id: string;
   label: string;

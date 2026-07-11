@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { UserPlus, Copy, Check, MessageSquare, Send, Hash, Smartphone, Settings2 } from "lucide-react";
-import { api, type MemberRow } from "../api.js";
+import { UserPlus, Copy, Check, MessageSquare, Send, Hash, Smartphone, Settings2, Trash2 } from "lucide-react";
+import { api, type MemberRow, type ChannelInfo } from "../api.js";
 import { useDashSocket } from "../useDashSocket.js";
-import { Button, Card, Input, PageHeader, EmptyState, Field } from "../components/ui.js";
-import { Dialog, Segmented, useToast } from "@hive/ui";
+import { Button, Card, Input, PageHeader, EmptyState, Field, Avatar, StatusDot } from "../components/ui.js";
+import { Dialog, ConfirmDialog, Segmented, useToast } from "@hive/ui";
 import { stagger } from "../lib/motion.js";
 import { cn } from "../lib/cn.js";
 
@@ -25,10 +25,41 @@ export function MembersPage() {
   const [name, setName] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [configFor, setConfigFor] = useState<MemberRow | null>(null);
+  const [deleteFor, setDeleteFor] = useState<MemberRow | null>(null);
+  const [chInfo, setChInfo] = useState<ChannelInfo>({});
   const toast = useToast();
+
+  async function delMember() {
+    if (!deleteFor) return;
+    try {
+      await api(`/api/members/${deleteFor.id}`, { method: "DELETE" });
+      toast(`Removed ${deleteFor.name}`);
+      setDeleteFor(null);
+      load();
+    } catch {
+      toast("Couldn't remove member", "error");
+    }
+  }
 
   const load = () => api<MemberRow[]>("/api/members").then(setMembers).catch(() => toast("Couldn't load members", "error"));
   useEffect(() => void load(), []);
+  useEffect(() => { api<ChannelInfo>("/api/channel-info").then(setChInfo).catch(() => {}); }, []);
+
+  // The zero-friction handoff: a ready message the operator sends to a friend.
+  function inviteText(code: string): string {
+    const ways: string[] = [];
+    if (chInfo.telegram?.username) ways.push(`• Telegram: https://t.me/${chInfo.telegram.username}`);
+    if (chInfo.imessage?.handle) ways.push(`• iMessage: text ${chInfo.imessage.handle}`);
+    if (chInfo.discord?.inviteUrl) ways.push(`• Discord: ${chInfo.discord.inviteUrl} — then DM the bot`);
+    ways.push("• Web chat: open the app and paste your code");
+    return `Join our hive! Message us on any of these and send your code:\n\n  ${code}\n\n${ways.join("\n")}`;
+  }
+  function copyInvite(code: string) {
+    navigator.clipboard?.writeText(inviteText(code));
+    setCopied("inv:" + code);
+    toast("Invite copied — send it to them");
+    setTimeout(() => setCopied(null), 1500);
+  }
   useDashSocket((e) => {
     if (e.type === "member.updated" || e.type === "bee.presence") load();
   });
@@ -77,12 +108,7 @@ export function MembersPage() {
               <Card className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <div
-                      className="grid size-9 place-items-center rounded-full text-[14px] font-semibold text-bg"
-                      style={{ background: "linear-gradient(135deg, #5b9dff, #e2701f)" }}
-                    >
-                      {m.name.slice(0, 1).toUpperCase()}
-                    </div>
+                    <Avatar name={m.name} size={36} className="text-[14px]" />
                     <div>
                       <div className="text-[15px] font-semibold text-fg">{m.name}</div>
                       <div className="text-[11px] text-faint">{m.timezone}</div>
@@ -91,11 +117,19 @@ export function MembersPage() {
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => copy(m.code)}
-                      className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 font-mono text-[12px] text-honey transition hover:border-honey/40"
-                      title="Copy invite code"
+                      className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 font-mono text-[12px] text-accent transition hover:border-accent/40"
+                      title="Copy just the code"
                     >
                       {copied === m.code ? <Check size={13} /> : <Copy size={13} />}
                       {m.code}
+                    </button>
+                    <button
+                      onClick={() => copyInvite(m.code)}
+                      className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-[12px] text-muted transition hover:border-border-heavy hover:text-fg"
+                      title="Copy a ready-to-send invite (links + code)"
+                    >
+                      {copied === "inv:" + m.code ? <Check size={13} /> : <Send size={13} />}
+                      Invite
                     </button>
                     <button
                       onClick={() => setConfigFor(m)}
@@ -104,6 +138,14 @@ export function MembersPage() {
                       aria-label={`Settings for ${m.name}'s bee`}
                     >
                       <Settings2 size={15} />
+                    </button>
+                    <button
+                      onClick={() => setDeleteFor(m)}
+                      className="grid size-8 place-items-center rounded-lg border border-border bg-surface text-muted transition hover:border-withhold/40 hover:text-withhold"
+                      title="Remove member"
+                      aria-label={`Remove ${m.name}`}
+                    >
+                      <Trash2 size={15} />
                     </button>
                   </div>
                 </div>
@@ -130,20 +172,13 @@ export function MembersPage() {
                             ci.beeOnline ? "text-share" : "text-faint",
                           )}
                         >
-                          <span
-                            className={cn(
-                              "size-1.5 rounded-full",
-                              ci.beeOnline ? "bg-share shadow-[0_0_6px_var(--color-share)]" : "bg-faint",
-                            )}
-                          />
+                          <StatusDot online={ci.beeOnline} className="size-1.5" />
                           {ci.beeOnline ? "online" : "offline"}
                         </span>
                       </div>
                     );
                   })}
                 </div>
-
-                <ChannelConnect member={m} />
               </Card>
             </motion.div>
           ))}
@@ -151,6 +186,14 @@ export function MembersPage() {
       )}
 
       <BeeConfigDialog member={configFor} onClose={() => setConfigFor(null)} onSaved={load} />
+      <ConfirmDialog
+        open={!!deleteFor}
+        onClose={() => setDeleteFor(null)}
+        onConfirm={delMember}
+        title={deleteFor ? `Remove ${deleteFor.name}?` : ""}
+        description="Permanently deletes their memories, connections, polls, and everything the hive knows about them. This can't be undone."
+        confirmLabel="Remove member"
+      />
     </div>
   );
 }
@@ -245,81 +288,3 @@ function BeeConfigDialog({ member, onClose, onSaved }: { member: MemberRow | nul
   );
 }
 
-const CONNECTABLE = [
-  { id: "telegram", label: "Telegram", Icon: Send, field: "botToken", hint: "Bot token from @BotFather" },
-  { id: "discord", label: "Discord", Icon: Hash, field: "botToken", hint: "Bot token (enable Message Content intent)" },
-] as const;
-
-function ChannelConnect({ member }: { member: MemberRow }) {
-  const [open, setOpen] = useState<string | null>(null);
-  const [token, setToken] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
-  const beeId = member.identities.find((i) => i.beeId)?.beeId ?? null;
-  const connected = new Set(member.identities.map((i) => i.channel));
-
-  async function connect(channel: string, field: string) {
-    if (!beeId || !token.trim()) return;
-    setStatus("connecting…");
-    try {
-      const r = await api<{ pushed: boolean }>(`/api/bees/${beeId}/channels/${channel}`, {
-        method: "PUT",
-        body: JSON.stringify({ [field]: token.trim() }),
-      });
-      setStatus(r.pushed ? `${channel} started — DM the bot your code to link it` : "saved (bee offline, will start when it reconnects)");
-      setToken("");
-      setOpen(null);
-    } catch (e) {
-      setStatus(`failed: ${(e as Error).message}`);
-    }
-  }
-
-  return (
-    <div className="mt-3 border-t border-border pt-3">
-      {!beeId ? (
-        <p className="text-[11px] text-faint">Pair on web chat first, then you can connect Telegram or Discord here.</p>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] text-faint">Add a channel:</span>
-          {CONNECTABLE.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => {
-                setOpen(open === c.id ? null : c.id);
-                setToken("");
-                setStatus(null);
-              }}
-              className={cn(
-                "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px] transition",
-                connected.has(c.id)
-                  ? "border-share/30 text-share"
-                  : open === c.id
-                    ? "border-honey/40 text-honey"
-                    : "border-border text-muted hover:border-border-heavy hover:text-fg",
-              )}
-            >
-              <c.Icon size={13} />
-              {c.label}
-              {connected.has(c.id) && <Check size={12} />}
-            </button>
-          ))}
-          {status && <span className="text-[11px] text-muted">{status}</span>}
-        </div>
-      )}
-      {open && (
-        <div className="mt-2 flex items-center gap-2">
-          <Input
-            type="password"
-            placeholder={CONNECTABLE.find((c) => c.id === open)!.hint}
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && connect(open, CONNECTABLE.find((c) => c.id === open)!.field)}
-            className="max-w-sm"
-          />
-          <Button variant="primary" onClick={() => connect(open, CONNECTABLE.find((c) => c.id === open)!.field)} disabled={!token.trim()}>
-            Connect
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}

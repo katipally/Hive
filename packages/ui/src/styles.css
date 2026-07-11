@@ -2,11 +2,11 @@
 
 /* ── Hive design system — palette taken from takt ─────────────────────────────
    takt's tokens verbatim: calm blue `--accent` for actions, warm `--arc` orange
-   for "working" states, warm-paper light + true near-black dark. No honey.
-   One set of token names, values swap by theme. Dark is the hero and lives in
-   :root (first paint is dark, no flash); `:root.light` = warm paper. Legacy Hive
-   names (bg/fg/honey/…) are aliased to takt values so every existing utility keeps
-   working while resolving to the new palette. */
+   for "working" states, warm-paper light + true near-black dark. One vocabulary:
+   `accent`/`arc` (not honey/ember — those aliases were removed). Values swap by
+   theme. Dark is the hero and lives in :root (first paint is dark, no flash);
+   `:root.light` = warm paper. A few legacy structural aliases (bg/fg/muted) stay
+   mapped to takt values so existing utilities keep working. */
 @theme inline {
   /* takt-native names */
   --color-background: var(--background);
@@ -26,13 +26,10 @@
   --color-destructive: var(--destructive);
   --color-success: var(--success);
 
-  /* legacy Hive aliases → takt values (zero component churn) */
+  /* structural aliases → takt values (kept: used by bg-fg/text-muted everywhere) */
   --color-bg: var(--background);
   --color-fg: var(--foreground);
   --color-muted: var(--muted-foreground);
-  --color-honey: var(--accent);
-  --color-honey-soft: var(--accent-soft);
-  --color-ember: var(--arc);
 }
 
 /* Constant across themes: semantic disclosure + graph-node colors (the 3D graph
@@ -85,6 +82,9 @@
 
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
   --shadow-pop: 0 10px 34px -12px rgba(0, 0, 0, 0.7);
+  --shadow-input: 0 10px 34px -14px rgba(0, 0, 0, 0.5);
+  --shadow-input-focus: 0 16px 44px -14px rgba(0, 0, 0, 0.6);
+  --shadow-accent: 0 2px 14px -4px rgba(91, 157, 255, 0.5);
   --scrollbar-thumb: rgba(255, 255, 255, 0.14);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
   --skeleton-base: rgba(255, 255, 255, 0.04);
@@ -120,6 +120,9 @@
 
   --shadow-card: 0 1px 2px rgba(60, 50, 30, 0.05), 0 10px 26px -14px rgba(60, 50, 30, 0.20);
   --shadow-pop: 0 10px 30px -12px rgba(60, 50, 30, 0.28);
+  --shadow-input: 0 8px 26px -16px rgba(60, 50, 30, 0.30);
+  --shadow-input-focus: 0 14px 40px -16px rgba(60, 50, 30, 0.40);
+  --shadow-accent: 0 2px 14px -4px rgba(37, 99, 235, 0.35);
   --scrollbar-thumb: rgba(33, 30, 24, 0.20);
   --scrollbar-thumb-hover: rgba(33, 30, 24, 0.32);
   --skeleton-base: rgba(33, 30, 24, 0.06);
@@ -203,10 +206,6 @@ summary:focus-visible,
   100% { box-shadow: 0 0 0 0 rgba(70, 192, 122, 0); }
 }
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-@keyframes arc-sweep {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
@@ -215,14 +214,15 @@ summary:focus-visible,
   animation: fade-up 0.32s var(--ease-out-quart) both;
 }
 
-/* streaming/thinking text shimmer — arc orange sweeping through (takt's nod). */
-.honey-shimmer {
-  background: linear-gradient(90deg, var(--muted-foreground) 0%, var(--arc) 50%, var(--muted-foreground) 100%);
+/* streaming / thinking text shimmer — accent sweeping through muted. One keyframe
+   (`shimmer`) drives both this and `.skeleton`. Used by the shared <Thinking>. */
+.thinking-shimmer {
+  background: linear-gradient(90deg, var(--muted-foreground) 0%, var(--accent) 50%, var(--muted-foreground) 100%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: arc-sweep 1.8s linear infinite;
+  animation: shimmer 1.8s linear infinite;
 }
 
 .skeleton {

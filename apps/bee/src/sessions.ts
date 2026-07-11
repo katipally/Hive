@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { appendJsonl, readJsonl } from "@hive/shared";
 import type { Message } from "@hive/shared/llm";
 import { dataDir } from "./config.js";
@@ -32,10 +32,31 @@ export function appendSession(beeId: string, sessionId: string, role: "user" | "
   appendJsonl(sessionFile(beeId, sessionId), { role, content, ts: Date.now() } satisfies TurnLine);
 }
 
-// Kept for callers that just want a recent slice (no compaction).
-export function loadHistory(beeId: string, sessionId: string, limit = 20): Message[] {
-  const lines = readJsonl<TurnLine>(sessionFile(beeId, sessionId));
-  return lines.slice(-limit).map((l) => ({ role: l.role, content: l.content }));
+// A separate DISPLAY transcript that also records out-of-band messages (nudges,
+// polls, notices). The LLM session above stays user/assistant-only; this is what
+// the web client loads so proactive messages survive refresh instead of vanishing.
+export interface DisplayLine {
+  role: "user" | "bee" | "notice" | "nudge";
+  content: string;
+  ts: number;
+}
+function displayFile(beeId: string, sessionId: string): string {
+  return join(dataDir(), "sessions", beeId, `${sessionId}.display.jsonl`);
+}
+export function appendDisplay(beeId: string, sessionId: string, role: DisplayLine["role"], content: string): void {
+  appendJsonl(displayFile(beeId, sessionId), { role, content, ts: Date.now() } satisfies DisplayLine);
+}
+export function displayTurns(beeId: string, sessionId: string): DisplayLine[] {
+  return readJsonl<DisplayLine>(displayFile(beeId, sessionId));
+}
+
+// Delete a conversation thread entirely: the display transcript the web client
+// reads, plus the LLM session (.jsonl) and its compaction checkpoint, so the
+// conversation truly resets rather than resurfacing on the next message.
+export function deleteDisplay(beeId: string, sessionId: string): void {
+  rmSync(displayFile(beeId, sessionId), { force: true });
+  rmSync(sessionFile(beeId, sessionId), { force: true });
+  rmSync(compactFile(beeId, sessionId), { force: true });
 }
 
 // Full persisted transcript for a session — the server-side source of truth the

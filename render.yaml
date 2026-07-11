@@ -1,0 +1,23 @@
+# Render Blueprint — free, no credit card. Docker web service, ephemeral disk
+# (the demo seeds itself on every boot, so no persistent disk is needed).
+# Note: the free plan sleeps after ~15 min idle and cold-starts on the next hit.
+services:
+  - type: web
+    name: hive-demo
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    autoDeploy: false
+    envVars:
+      - key: HIVE_DEMO
+        value: "1"
+      - key: HIVE_DEMO_MODEL
+        value: MiniMax-M2
+      - key: HIVE_LLM_DAILY_CAP
+        value: "300"
+      # set this as a secret in the Render dashboard (never commit it):
+      - key: MINIMAX_API_KEY
+        sync: false
+      # optional, only if you use MiniMax's CN endpoint:
+      # - key: HIVE_MINIMAX_BASE_URL
+      #   value: https://api.minimaxi.com/anthropic

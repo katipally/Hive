@@ -30,14 +30,27 @@ export function openDb(dataDir: string): HiveDb {
   }
 
   db.exec(readFileSync(join(__dirname, "schema.sql"), "utf8"));
-  // lightweight migrations (add columns to existing DBs; ignore if already present)
-  for (const stmt of ["ALTER TABLE nudges ADD COLUMN feedback INTEGER"]) {
+  // Additive column migrations for pre-existing DBs (fresh DBs already have them from
+  // schema.sql). Idempotent: swallow ONLY "duplicate column" and surface every other error
+  // instead of hiding a real schema failure. ponytail: a single-file SQLite dev app doesn't
+  // need a versioned migration framework — add the next ALTER here.
+  for (const stmt of [
+    "ALTER TABLE nudges ADD COLUMN feedback INTEGER",
+    "ALTER TABLE members ADD COLUMN opt_out_polling INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE memories ADD COLUMN implications_at INTEGER",
+    "ALTER TABLE disclosures ADD COLUMN cache_key TEXT",
+  ]) {
     try {
       db.exec(stmt);
-    } catch {
-      /* column exists */
+    } catch (e) {
+      if (!/duplicate column name/i.test((e as Error).message)) throw e;
     }
   }
+  // Indexes on migrated columns must be created AFTER the ALTERs above (schema.sql runs
+  // before them, so a column added by migration isn't there yet when schema.sql executes).
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_disclosures_cache ON disclosures(from_member_id, to_member_id, cache_key, created_at)",
+  );
   instance = { db, vecEnabled };
   return instance;
 }

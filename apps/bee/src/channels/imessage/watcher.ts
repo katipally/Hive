@@ -30,11 +30,14 @@ export class IMessageChannel implements ChannelAdapter {
   constructor(
     private cursor: number,
     private readonly onCursor: (rowid: number) => void,
+    // Point at a dedicated macOS user's Messages DB to run a "bot" Apple ID
+    // (hive@icloud.com) instead of your personal account. Defaults to this user's.
+    private readonly dbPath: string = CHAT_DB,
   ) {}
 
   async start(onMessage: (msg: InboundMessage, sink: ReplySink) => void): Promise<void> {
     try {
-      this.db = new Database(CHAT_DB, { readonly: true, fileMustExist: true });
+      this.db = new Database(this.dbPath, { readonly: true, fileMustExist: true });
       // if cursor is 0, start from the current max so we don't replay history
       if (this.cursor === 0) {
         const row = this.db.prepare("SELECT MAX(ROWID) m FROM message").get() as { m: number | null };

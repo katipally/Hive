@@ -3,6 +3,7 @@ import { WebSocketServer } from "ws";
 import type { BeeToHive, HiveToBee } from "@hive/shared";
 import { getSecret, putSecret, hasSecret, listSecretNames } from "../crypto/keystore.js";
 import { upsertBee } from "../db/repo.js";
+import { getDb } from "../db/db.js";
 import { checkIdentity, attemptPair } from "../identity/pairing.js";
 import { ingestTurn } from "../ingest/ingest.js";
 import { buildContext } from "../retrieval/retrieve.js";
@@ -27,8 +28,12 @@ export function beeOnline(beeId: string): boolean {
   return bees.has(beeId);
 }
 
-export function listBees(): { beeId: string; online: boolean }[] {
-  return [...bees.keys()].map((beeId) => ({ beeId, online: true }));
+// All known bees, oldest first. The oldest (first-registered) bee is the canonical
+// "hive bee" that hosts the shared channel bots — a stable, deterministic choice
+// rather than a heuristic. Online status comes from the live connection map.
+export function listBees(): { beeId: string; online: boolean; primary: boolean }[] {
+  const rows = getDb().db.prepare("SELECT id FROM bees ORDER BY created_at ASC, id ASC").all() as { id: string }[];
+  return rows.map((r, i) => ({ beeId: r.id, online: bees.has(r.id), primary: i === 0 }));
 }
 
 // Generic push to a specific bee (channel config, etc.).

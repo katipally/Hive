@@ -1,0 +1,43 @@
+{
+	admin off
+	auto_https off
+}
+
+# One public origin. $PORT is provided by the host (Render/Fly); 8080 locally.
+:{$PORT:8080} {
+	encode gzip
+
+	# --- hive brain: HTTP API + dashboard/bee websockets ---
+	handle /api/* {
+		reverse_proxy localhost:4800
+	}
+	handle /ws/dash {
+		reverse_proxy localhost:4800
+	}
+	handle /ws/bee {
+		reverse_proxy localhost:4800
+	}
+
+	# --- bee runtime: /bee-api/* → /api/* on the bee; chat websocket ---
+	handle /bee-api/* {
+		uri replace /bee-api /api
+		reverse_proxy localhost:4801
+	}
+	handle /ws/chat {
+		reverse_proxy localhost:4801
+	}
+
+	# --- web chat SPA (built with base /chat/) ---
+	handle /chat* {
+		root * /srv
+		try_files {path} /chat/index.html
+		file_server
+	}
+
+	# --- dashboard SPA (default) ---
+	handle {
+		root * /srv/dash
+		try_files {path} /index.html
+		file_server
+	}
+}

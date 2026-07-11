@@ -81,18 +81,20 @@ export async function buildContext(
   return blocks;
 }
 
-// The member's own live relations, phrased as facts. One hop from their node.
+// The member's own live relations, phrased as facts. Scoped by SOURCE-MEMORY
+// ownership so a shared entity node can never leak another member's edges — the
+// "keep shared entities, guard the reads" model. (Also fixes the old node-owner
+// lookup that returned nothing because extracted entities are hive-shared.)
 function memberGraphFacts(memberId: string): string[] {
   const { db } = getDb();
-  const me = db.prepare("SELECT id FROM entities WHERE member_id=? LIMIT 1").get(memberId) as { id: string } | undefined;
-  if (!me) return [];
   const rows = db
     .prepare(
       `SELECT s.name src, g.rel, d.name dst FROM edges g
        JOIN entities s ON s.id=g.src_entity_id JOIN entities d ON d.id=g.dst_entity_id
-       WHERE g.invalidated_at IS NULL AND (g.src_entity_id=? OR g.dst_entity_id=?)
+       JOIN memories m ON m.id=g.source_memory_id
+       WHERE g.invalidated_at IS NULL AND m.member_id=?
        ORDER BY g.confidence DESC LIMIT 12`,
     )
-    .all(me.id, me.id) as { src: string; rel: string; dst: string }[];
+    .all(memberId) as { src: string; rel: string; dst: string }[];
   return rows.map((r) => `${r.src} ${r.rel.replace(/_/g, " ")} ${r.dst}`);
 }

@@ -1,0 +1,11 @@
+.git
+**/node_modules
+**/dist
+hive-data
+bee-data
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/master.key
+*.log
+.DS_Store

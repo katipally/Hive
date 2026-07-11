@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS members (
   quiet_hours_end TEXT,
   preferred_channel_identity_id TEXT,
   last_heartbeat_at INTEGER,
+  opt_out_polling INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
 
@@ -83,7 +84,8 @@ CREATE TABLE IF NOT EXISTS memories (
   source_turn_id TEXT REFERENCES turns(id),
   provenance TEXT NOT NULL DEFAULT '[]',
   superseded_by TEXT REFERENCES memories(id),
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  implications_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_memories_member ON memories(member_id, created_at);
 
@@ -113,8 +115,11 @@ CREATE TABLE IF NOT EXISTS disclosures (
   withheld TEXT,
   reasoning TEXT NOT NULL,
   memory_ids TEXT NOT NULL DEFAULT '[]',
+  cache_key TEXT,
   created_at INTEGER NOT NULL
 );
+-- NOTE: the idx_disclosures_cache index is created in db.ts AFTER the cache_key migration,
+-- because on pre-existing DBs the column is added by ALTER (which runs after this file).
 
 CREATE TABLE IF NOT EXISTS nudges (
   id TEXT PRIMARY KEY,
@@ -141,3 +146,30 @@ CREATE TABLE IF NOT EXISTS activity_log (
   payload TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_log(ts);
+
+-- ask-your-network polling: the hive quietly asks friends 1:1 and synthesizes.
+CREATE TABLE IF NOT EXISTS polls (
+  id TEXT PRIMARY KEY,
+  initiator_member_id TEXT REFERENCES members(id), -- null = autonomous (hive-initiated)
+  topic TEXT NOT NULL,
+  question TEXT NOT NULL,                            -- the underlying intent
+  status TEXT NOT NULL CHECK (status IN ('collecting','synthesizing','done','cancelled')),
+  anonymized INTEGER NOT NULL DEFAULT 1,
+  synthesis TEXT,
+  closes_at INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_polls_status ON polls(status, created_at);
+
+-- one row per friend asked; `answer` fills in when they reply (correlated on ingest).
+CREATE TABLE IF NOT EXISTS poll_asks (
+  id TEXT PRIMARY KEY,
+  poll_id TEXT NOT NULL REFERENCES polls(id),
+  member_id TEXT NOT NULL REFERENCES members(id),
+  question TEXT NOT NULL,                            -- the anonymized question actually sent
+  answer TEXT,
+  delivered_at INTEGER,
+  answered_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_poll_asks_open ON poll_asks(member_id, answered_at);
+CREATE INDEX IF NOT EXISTS idx_poll_asks_poll ON poll_asks(poll_id);

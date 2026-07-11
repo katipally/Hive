@@ -10,6 +10,7 @@ import { attachBeeHub } from "./ws/bee-hub.js";
 import { attachDashHub } from "./ws/dash-hub.js";
 import { registerPipeline } from "./pipeline/register.js";
 import { startHeartbeat } from "./proactive/heartbeat.js";
+import { bootstrapDemo } from "./demo.js";
 
 const VERSION = "0.1.0";
 const PORT = Number(process.env["HIVE_PORT"] ?? 4800);
@@ -43,3 +44,6 @@ startHeartbeat();
 
 console.log(`[hive] listening on http://localhost:${PORT}  (ws: /ws/bee, /ws/dash)`);
 console.log(`[hive] data dir: ${DATA_DIR}`);
+
+// hosted demo only (HIVE_DEMO): bake key/roles, seed the scenario, kick orchestrator
+void bootstrapDemo().catch((e) => console.error("[hive] demo bootstrap failed:", e));

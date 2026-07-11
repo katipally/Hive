@@ -1,4 +1,5 @@
 import type { AgentTool } from "@hive/shared/agent";
+import { CONSTITUTION_BRIEF } from "@hive/shared";
 import type { ContextBlock } from "@hive/shared";
 
 // Tools the bee agent can call mid-turn. Each is a thin HTTP call to hive — the
@@ -75,6 +76,53 @@ export function makeBeeTools(deps: {
           body: JSON.stringify({ text: pref }),
         }).catch(() => {});
         return `Saved privacy preference: "${pref}"`;
+      },
+    },
+    {
+      spec: {
+        name: "ask_network",
+        description:
+          "Quietly ask this member's friends for their honest take on something, then synthesize what the group thinks. Use when the member wants opinions or ideas from their friends (e.g. 'ask my friends…', 'what would people think about…', help planning a surprise). Friends are asked ANONYMOUSLY — they won't know who it's for. Results arrive later, not immediately.",
+        parameters: {
+          type: "object",
+          properties: {
+            question: { type: "string", description: "What the member wants to learn from their friends" },
+            topic: { type: "string", description: "A short label for the topic, e.g. 'birthday ideas'" },
+          },
+          required: ["question"],
+        },
+      },
+      run: async (args) => {
+        const question = String(args.question ?? "").trim();
+        if (!question) return "No question given.";
+        const topic = String(args.topic ?? "").trim() || question.slice(0, 60);
+        await hive(`/api/polls`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ question, topic, initiatorMemberId: memberId }),
+        }).catch(() => {});
+        return `On it — I'll quietly ask around and let you know what people think about "${topic}". Give it a little time.`;
+      },
+    },
+    {
+      spec: {
+        name: "explain_decision",
+        description:
+          "Get the grounds to honestly explain a recent hive decision to the member — why something was (or wasn't) shared about them. Use when they ask 'why did you do/say that?', 'what did you tell people?', or question your behavior.",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => {
+        const rows = (await hive(`/api/members/${memberId}/shared`).then((r) => r.json()).catch(() => [])) as {
+          decision: string;
+          disclosed: string | null;
+          withheld: string | null;
+          reasoning: string;
+        }[];
+        const recent = rows.slice(0, 8).map((d) => {
+          if (d.decision === "withhold") return `- withheld something (${d.reasoning})`;
+          return `- ${d.decision}: "${d.disclosed}" — because ${d.reasoning}`;
+        });
+        return `Explain grounded in these principles and records — be honest, take responsibility, never spin.\n\nPrinciples: ${CONSTITUTION_BRIEF}\n\nRecent decisions about this member:\n${recent.join("\n") || "(no cross-member decisions recorded)"}`;
       },
     },
   ];

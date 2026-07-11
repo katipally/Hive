@@ -5,6 +5,7 @@ import type { Message, StreamEvent, StreamFn, ThinkingLevel, ToolSpec } from "@h
 // hive resolves role -> provider/model/key and streams SSE back.
 export async function* chatViaHive(opts: {
   hiveHttpUrl: string;
+  beeId: string;
   beeToken: string;
   role: ModelRole;
   system?: string;
@@ -15,7 +16,7 @@ export async function* chatViaHive(opts: {
 }): AsyncGenerator<StreamEvent> {
   const res = await fetch(`${opts.hiveHttpUrl}/api/llm/chat`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-bee-token": opts.beeToken },
+    headers: { "content-type": "application/json", "x-bee-id": opts.beeId, "x-bee-token": opts.beeToken },
     body: JSON.stringify({
       role: opts.role,
       system: opts.system,
@@ -54,10 +55,11 @@ export async function* chatViaHive(opts: {
 // Adapt the hive proxy to the generic StreamFn the agent loop expects. hive
 // resolves provider/model/key from the role, so baseUrl/apiKey/model on the
 // request are ignored — only system/messages/tools/thinkingLevel matter.
-export function hiveStreamFn(opts: { hiveHttpUrl: string; beeToken: string; role: ModelRole }): StreamFn {
+export function hiveStreamFn(opts: { hiveHttpUrl: string; beeId: string; beeToken: string; role: ModelRole }): StreamFn {
   return (req) =>
     chatViaHive({
       hiveHttpUrl: opts.hiveHttpUrl,
+      beeId: opts.beeId,
       beeToken: opts.beeToken,
       role: opts.role,
       system: req.system,

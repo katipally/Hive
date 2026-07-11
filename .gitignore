@@ -3,5 +3,10 @@ dist/
 *.tsbuildinfo
 hive-data/
 bee-data/
+# defensive: never commit local dbs or encryption keys even if they land elsewhere
+*.db
+*.db-wal
+*.db-shm
+master.key
 .DS_Store
 *.log

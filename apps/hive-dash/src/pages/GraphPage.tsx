@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph3D from "react-force-graph-3d";
 import SpriteText from "three-spritetext";
+import { Object3D } from "three";
 import { AnimatePresence, motion } from "motion/react";
-import { Search, X, Sparkles, GitBranch, Layers, Crosshair, Plus, Minus, Info, Trash2 } from "lucide-react";
+import { Search, X, Sparkles, GitBranch, Layers, Crosshair, Plus, Minus, Info, Trash2, Filter, RotateCcw } from "lucide-react";
 import { api } from "../api.js";
 import { useDashSocket } from "../useDashSocket.js";
 import { NODE_COLORS, NODE_LABEL } from "../lib/palette.js";
@@ -16,7 +17,7 @@ interface GNode {
   name: string;
   type: string;
   memberId: string | null;
-  val: number;
+  val: number; // connection count (degree)
   group: string;
 }
 interface GLink {
@@ -38,18 +39,24 @@ interface MemberLite {
 
 const TYPES = Object.keys(NODE_COLORS);
 const idOf = (x: string | GNode) => (typeof x === "string" ? x : x.id);
+const HUB_COUNT = 12; // always-label the N most-connected nodes so the graph is readable at rest
 
 export function GraphPage() {
   const [graph, setGraph] = useState<Graph>({ nodes: [], links: [] });
   const [members, setMembers] = useState<MemberLite[]>([]);
   const [member, setMember] = useState("");
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [showInvalidated, setShowInvalidated] = useState(true);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [rel, setRel] = useState("");
+  const [minDegree, setMinDegree] = useState(0);
+  const [minConf, setMinConf] = useState(0);
   const [query, setQuery] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
   const [selected, setSelected] = useState<GNode | null>(null);
   const [detail, setDetail] = useState<any>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+
   const fgRef = useRef<any>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [dims, setDims] = useState({ w: 0, h: 0 });
@@ -87,21 +94,26 @@ export function GraphPage() {
     return () => ro.disconnect();
   }, []);
 
+  // calm, settling physics (not the jittery GPU kind)
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg) return;
-    fg.d3Force("charge")?.strength(-190);
-    fg.d3Force("link")?.distance(58);
+    fg.d3Force("charge")?.strength(-140);
+    fg.d3Force("link")?.distance(60);
   }, [graph]);
 
-  const data = useMemo(() => {
-    const nodes = graph.nodes.filter((n) => !hidden.has(n.type));
-    const keep = new Set(nodes.map((n) => n.id));
-    const links = graph.links.filter((l) => keep.has(idOf(l.source)) && keep.has(idOf(l.target)));
-    return { nodes: nodes.map((n) => ({ ...n })), links: links.map((l) => ({ ...l })) };
-  }, [graph, hidden]);
+  const relTypes = useMemo(() => [...new Set(graph.links.map((l) => l.rel))].sort(), [graph.links]);
 
-  // adjacency for hover highlight
+  const data = useMemo(() => {
+    const nodes = graph.nodes.filter((n) => !hidden.has(n.type) && n.val >= minDegree);
+    const keep = new Set(nodes.map((n) => n.id));
+    const links = graph.links.filter(
+      (l) => keep.has(idOf(l.source)) && keep.has(idOf(l.target)) && l.confidence >= minConf && (!rel || l.rel === rel),
+    );
+    return { nodes: nodes.map((n) => ({ ...n })), links: links.map((l) => ({ ...l })) };
+  }, [graph, hidden, minDegree, minConf, rel]);
+
+  // adjacency for hover/selection highlight
   const adj = useMemo(() => {
     const m = new Map<string, Set<string>>();
     for (const l of data.links) {
@@ -112,20 +124,39 @@ export function GraphPage() {
     return m;
   }, [data]);
 
+  // the always-labelled hubs (most connected), so names are visible even before you interact
+  const hubIds = useMemo(() => {
+    return new Set([...data.nodes].sort((a, b) => b.val - a.val).slice(0, HUB_COUNT).map((n) => n.id));
+  }, [data.nodes]);
+
   const q = query.trim().toLowerCase();
   const matches = useMemo(
     () => new Set(q ? graph.nodes.filter((n) => n.name.toLowerCase().includes(q)).map((n) => n.id) : []),
     [q, graph.nodes],
   );
 
+  const selId = selected?.id ?? null;
+  // a node gets an in-scene name label if: it's a hub, it's selected, it neighbours the
+  // selection, or it matches the search — everything else stays a clean dot (no mush).
+  const labelled = useCallback(
+    (id: string) => hubIds.has(id) || id === selId || (selId != null && (adj.get(selId)?.has(id) ?? false)) || matches.has(id),
+    [hubIds, selId, adj, matches],
+  );
+
   const isDim = useCallback(
     (id: string) => {
       if (q) return !matches.has(id);
-      if (hoverId) return id !== hoverId && !(adj.get(hoverId)?.has(id) ?? false);
+      const focus = hoverId ?? selId;
+      if (focus) return id !== focus && !(adj.get(focus)?.has(id) ?? false);
       return false;
     },
-    [q, matches, hoverId, adj],
+    [q, matches, hoverId, selId, adj],
   );
+
+  // rebuild node/link scene objects when the selection changes (labels follow focus)
+  useEffect(() => {
+    fgRef.current?.refresh();
+  }, [selId, hubIds, matches]);
 
   async function onNode(node: GNode) {
     setSelected(node);
@@ -134,17 +165,27 @@ export function GraphPage() {
     const fg = fgRef.current;
     const n = node as any;
     if (fg && n.x != null) {
-      const ratio = 1 + 90 / Math.hypot(n.x || 1, n.y || 1, n.z || 1);
-      fg.cameraPosition({ x: n.x * ratio, y: n.y * ratio, z: n.z * ratio }, n, 800);
+      const ratio = 1 + 120 / Math.hypot(n.x || 1, n.y || 1, n.z || 1);
+      fg.cameraPosition({ x: n.x * ratio, y: n.y * ratio, z: n.z * ratio }, n, 900);
     }
   }
 
-  // dolly the camera toward/away from the scene centre
   const dolly = (factor: number) => {
     const fg = fgRef.current;
     if (!fg) return;
     const p = fg.camera().position;
     fg.cameraPosition({ x: p.x * factor, y: p.y * factor, z: p.z * factor }, undefined, 250);
+  };
+
+  const resetView = () => {
+    setQuery("");
+    setHidden(new Set());
+    setRel("");
+    setMinDegree(0);
+    setMinConf(0);
+    setSelected(null);
+    setHoverId(null);
+    fgRef.current?.zoomToFit(700, 80);
   };
 
   const toast = useToast();
@@ -171,6 +212,8 @@ export function GraphPage() {
     }
   }
 
+  const filtersActive = hidden.size > 0 || !!rel || minDegree > 0 || minConf > 0;
+
   return (
     <div ref={wrapRef} className="relative h-full overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)]">
       {/* toolbar */}
@@ -195,46 +238,25 @@ export function GraphPage() {
           <select value={member} onChange={(e) => setMember(e.target.value)} className="bg-transparent text-[13px] text-fg outline-none">
             <option value="" className="bg-popover">All members</option>
             {members.map((m) => (
-              <option key={m.id} value={m.id} className="bg-popover">
-                {m.name}
-              </option>
+              <option key={m.id} value={m.id} className="bg-popover">{m.name}</option>
             ))}
           </select>
         </div>
 
-        <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-xl border border-border bg-popover/80 px-2.5 py-2 shadow-lg backdrop-blur-md">
-          {TYPES.map((t) => {
-            const on = !hidden.has(t);
-            return (
-              <button
-                key={t}
-                onClick={() =>
-                  setHidden((h) => {
-                    const n = new Set(h);
-                    n.has(t) ? n.delete(t) : n.add(t);
-                    return n;
-                  })
-                }
-                className={cn("flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium transition", on ? "text-fg" : "text-faint opacity-50")}
-              >
-                <span className="size-2.5 rounded-full transition" style={{ background: NODE_COLORS[t], boxShadow: on ? `0 0 6px ${NODE_COLORS[t]}` : "none" }} />
-                {NODE_LABEL[t]}
-              </button>
-            );
-          })}
-          <span className="mx-1 h-4 w-px bg-border" />
-          <button onClick={() => setShowInvalidated((v) => !v)} className={cn("rounded-full px-2 py-1 text-[11px] font-medium transition", showInvalidated ? "text-fg" : "text-faint")}>
-            past facts
-          </button>
-        </div>
+        <button
+          onClick={() => setShowFilters((v) => !v)}
+          className={cn(
+            "pointer-events-auto flex items-center gap-2 rounded-xl border bg-popover/80 px-3 py-2 text-[13px] shadow-lg backdrop-blur-md transition",
+            showFilters || filtersActive ? "border-accent/40 text-accent" : "border-border text-muted hover:text-fg",
+          )}
+        >
+          <Filter size={14} /> Filters{filtersActive ? " ·" : ""}
+        </button>
 
         <div className="pointer-events-auto ml-auto flex items-center gap-2">
           <button
             onClick={() => setShowHelp((v) => !v)}
-            className={cn(
-              "rounded-xl border border-border bg-popover/80 p-2 shadow-lg backdrop-blur-md transition",
-              showHelp ? "text-honey" : "text-muted hover:text-fg",
-            )}
+            className={cn("rounded-xl border border-border bg-popover/80 p-2 shadow-lg backdrop-blur-md transition", showHelp ? "text-accent" : "text-muted hover:text-fg")}
             title="What am I looking at?"
           >
             <Info size={15} />
@@ -246,19 +268,88 @@ export function GraphPage() {
         </div>
       </div>
 
-      {/* zoom controls */}
+      {/* filters panel */}
+      <AnimatePresence>
+        {showFilters && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.16 }}
+            className="pointer-events-auto absolute left-4 top-20 z-20 w-[280px] space-y-4 rounded-2xl border border-border bg-popover/95 p-4 shadow-2xl backdrop-blur-xl"
+          >
+            <div>
+              <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-faint">Node types</div>
+              <div className="flex flex-wrap gap-1.5">
+                {TYPES.map((t) => {
+                  const on = !hidden.has(t);
+                  return (
+                    <button
+                      key={t}
+                      onClick={() =>
+                        setHidden((h) => {
+                          const n = new Set(h);
+                          n.has(t) ? n.delete(t) : n.add(t);
+                          return n;
+                        })
+                      }
+                      className={cn("flex items-center gap-1.5 rounded-full border border-border px-2 py-1 text-[11px] font-medium transition", on ? "text-fg" : "text-faint opacity-50")}
+                    >
+                      <span className="size-2.5 rounded-full" style={{ background: NODE_COLORS[t], boxShadow: on ? `0 0 6px ${NODE_COLORS[t]}` : "none" }} />
+                      {NODE_LABEL[t]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-faint">Relationship</div>
+              <select value={rel} onChange={(e) => setRel(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-2.5 py-1.5 text-[12px] text-fg outline-none">
+                <option value="">All relationships</option>
+                {relTypes.map((r) => (
+                  <option key={r} value={r}>{r.replace(/_/g, " ")}</option>
+                ))}
+              </select>
+            </div>
+
+            <label className="block">
+              <div className="mb-1 flex items-center justify-between text-[11px] text-faint">
+                <span className="font-medium uppercase tracking-wider">Min connections</span>
+                <span className="text-fg">{minDegree}</span>
+              </div>
+              <input type="range" min={0} max={10} value={minDegree} onChange={(e) => setMinDegree(Number(e.target.value))} className="w-full accent-[var(--color-accent)]" />
+            </label>
+
+            <label className="block">
+              <div className="mb-1 flex items-center justify-between text-[11px] text-faint">
+                <span className="font-medium uppercase tracking-wider">Min confidence</span>
+                <span className="text-fg">{minConf.toFixed(2)}</span>
+              </div>
+              <input type="range" min={0} max={1} step={0.05} value={minConf} onChange={(e) => setMinConf(Number(e.target.value))} className="w-full accent-[var(--color-accent)]" />
+            </label>
+
+            <div className="flex items-center justify-between border-t border-border pt-3">
+              <button onClick={() => setShowInvalidated((v) => !v)} className={cn("rounded-full border border-border px-2.5 py-1 text-[11px] font-medium transition", showInvalidated ? "text-fg" : "text-faint")}>
+                {showInvalidated ? "showing past facts" : "past facts hidden"}
+              </button>
+              <button onClick={resetView} className="flex items-center gap-1.5 text-[11px] text-muted transition hover:text-accent">
+                <RotateCcw size={12} /> Reset
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* view controls */}
       <div className="absolute bottom-5 right-5 z-10 flex flex-col overflow-hidden rounded-xl border border-border bg-popover/80 shadow-lg backdrop-blur-md">
-        <button onClick={() => dolly(0.75)} className="p-2.5 text-muted transition hover:bg-fg/[0.06] hover:text-fg" title="Zoom in">
-          <Plus size={15} />
-        </button>
+        <button onClick={() => dolly(0.75)} className="p-2.5 text-muted transition hover:bg-fg/[0.06] hover:text-fg" title="Zoom in"><Plus size={15} /></button>
         <span className="mx-2 h-px bg-border" />
-        <button onClick={() => dolly(1.35)} className="p-2.5 text-muted transition hover:bg-fg/[0.06] hover:text-fg" title="Zoom out">
-          <Minus size={15} />
-        </button>
+        <button onClick={() => dolly(1.35)} className="p-2.5 text-muted transition hover:bg-fg/[0.06] hover:text-fg" title="Zoom out"><Minus size={15} /></button>
         <span className="mx-2 h-px bg-border" />
-        <button onClick={() => fgRef.current?.zoomToFit(600, 70)} className="p-2.5 text-muted transition hover:bg-fg/[0.06] hover:text-fg" title="Fit everything to view">
-          <Crosshair size={15} />
-        </button>
+        <button onClick={() => fgRef.current?.zoomToFit(600, 70)} className="p-2.5 text-muted transition hover:bg-fg/[0.06] hover:text-fg" title="Fit everything to view"><Crosshair size={15} /></button>
+        <span className="mx-2 h-px bg-border" />
+        <button onClick={resetView} className="p-2.5 text-muted transition hover:bg-fg/[0.06] hover:text-accent" title="Reset view"><RotateCcw size={15} /></button>
       </div>
 
       {/* legend / help */}
@@ -273,26 +364,14 @@ export function GraphPage() {
           >
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[13px] font-semibold text-fg">Reading the graph</span>
-              <button onClick={() => setShowHelp(false)} className="text-faint hover:text-fg">
-                <X size={14} />
-              </button>
+              <button onClick={() => setShowHelp(false)} className="text-faint hover:text-fg"><X size={14} /></button>
             </div>
             <ul className="space-y-2 text-[12px] text-muted">
-              <li>
-                <b className="text-fg">Dots are entities</b> — people, places, orgs, events, things, topics. Colour = type (see the top filter).
-              </li>
-              <li>
-                <b className="text-fg">Bigger dots</b> know more people — size grows with connections.
-              </li>
-              <li>
-                <b className="text-fg">Lines are relationships</b>, labelled with what they mean (lives in, works at, friends with…). Gold sparks flow along the ones that are currently true.
-              </li>
-              <li>
-                <b className="text-fg">Faded lines</b> are past facts that changed (turn “past facts” off to hide them).
-              </li>
-              <li>
-                <b className="text-fg">Hover</b> to focus a dot and its connections. <b className="text-fg">Click</b> to open its full profile.
-              </li>
+              <li><b className="text-fg">Dots are entities</b> — colour = type, bigger = more connections.</li>
+              <li><b className="text-fg">The busiest nodes are always named</b>; hover any dot to see its name.</li>
+              <li><b className="text-fg">Click a dot</b> to focus it — its neighbours light up and every <b className="text-fg">relationship gets labelled</b> (lives in, works at…).</li>
+              <li><b className="text-fg">Faded links</b> are past facts that changed. Drag to rotate, scroll to zoom.</li>
+              <li><b className="text-fg">Reset</b> reframes everything and clears filters + selection.</li>
             </ul>
           </motion.div>
         )}
@@ -308,68 +387,72 @@ export function GraphPage() {
           showNavInfo={false}
           nodeRelSize={5}
           nodeVal={(n: any) => n.val}
+          nodeLabel={(n: any) => n.name}
+          cooldownTime={4000}
+          warmupTicks={40}
+          enableNodeDrag={false}
           onEngineStop={() => {
             if (!fitDone.current) {
               fitDone.current = true;
-              fgRef.current?.zoomToFit(500, 70);
+              fgRef.current?.zoomToFit(600, 70);
             }
           }}
+          nodeThreeObjectExtend
           nodeThreeObject={(n: any) => {
+            if (!labelled(n.id)) return new Object3D(); // clean dot; hover shows the name tooltip
             const dim = isDim(n.id);
-            const focus = n.id === hoverId || n.id === selected?.id;
+            const focus = n.id === hoverId || n.id === selId;
             const s = new SpriteText(n.name);
-            s.color = dim ? "rgba(168,158,136,0.35)" : "#f7f3e9";
-            s.textHeight = focus ? 4.4 : 3.4;
+            s.color = dim ? "rgba(200,196,186,0.4)" : "#f7f3e9";
+            s.textHeight = focus ? 5 : 3.6;
             s.fontFace = "Geist Variable, sans-serif";
-            // readable chip behind the name so it stays legible over the 3D scene
-            s.backgroundColor = dim ? "rgba(0,0,0,0)" : focus ? "rgba(91,157,255,0.18)" : "rgba(16,16,18,0.66)";
-            s.padding = dim ? 0 : 1.8;
-            s.borderRadius = 2.5;
+            s.backgroundColor = dim ? "rgba(0,0,0,0)" : focus ? "rgba(91,157,255,0.2)" : "rgba(16,16,18,0.72)";
+            s.padding = dim ? 0 : 2;
+            s.borderRadius = 3;
             (s as any).material.depthWrite = false;
-            s.position.y = -(2 + Math.sqrt(n.val) * 2.2);
+            s.position.y = -(3 + Math.sqrt(n.val) * 2.2);
             return s;
           }}
-          nodeThreeObjectExtend
           linkThreeObjectExtend
           linkThreeObject={(l: any) => {
+            // only label the focused node's relationships — that's how you "see relations" without mush
+            const focus = selId ?? hoverId;
+            if (!focus || (idOf(l.source) !== focus && idOf(l.target) !== focus)) return new Object3D();
             const s = new SpriteText(String(l.rel).replace(/_/g, " "));
-            s.color = l.invalidated ? "rgba(150,110,80,0.45)" : "rgba(214,194,150,0.6)";
-            s.textHeight = 1.9;
+            s.color = l.invalidated ? "rgba(150,110,80,0.6)" : "rgba(224,206,160,0.92)";
+            s.textHeight = 2.4;
             s.fontFace = "Geist Variable, sans-serif";
+            s.backgroundColor = "rgba(16,16,18,0.6)";
+            s.padding = 1.2;
+            s.borderRadius = 2;
             (s as any).material.depthWrite = false;
             return s;
           }}
           linkPositionUpdate={(sprite: any, { start, end }: any) => {
-            sprite.position.set((start.x + end.x) / 2, (start.y + end.y) / 2, (start.z + end.z) / 2);
-            return true;
+            if (sprite) sprite.position.set((start.x + end.x) / 2, (start.y + end.y) / 2, (start.z + end.z) / 2);
+            return false;
           }}
-          nodeColor={(n: any) =>
-            isDim(n.id) ? "rgba(120,112,96,0.2)" : matches.has(n.id) ? "#ffffff" : NODE_COLORS[n.type] ?? "#8fb0ff"
-          }
+          nodeColor={(n: any) => (isDim(n.id) ? "rgba(120,112,96,0.25)" : matches.has(n.id) ? "#ffffff" : NODE_COLORS[n.type] ?? "#8fb0ff")}
           nodeOpacity={0.95}
           onNodeHover={(n: any) => setHoverId(n?.id ?? null)}
           linkColor={(l: any) => {
-            const hot = hoverId && (idOf(l.source) === hoverId || idOf(l.target) === hoverId);
-            if (l.invalidated) return hot ? "rgba(229,97,90,0.5)" : "rgba(120,90,60,0.25)";
-            return hot ? "rgba(91,157,255,0.75)" : "rgba(160,170,190,0.3)";
+            const focus = hoverId ?? selId;
+            const hot = focus && (idOf(l.source) === focus || idOf(l.target) === focus);
+            if (l.invalidated) return hot ? "rgba(229,97,90,0.55)" : "rgba(120,90,60,0.22)";
+            return hot ? "rgba(91,157,255,0.8)" : "rgba(160,170,190,0.26)";
           }}
           linkWidth={(l: any) => {
-            const hot = hoverId && (idOf(l.source) === hoverId || idOf(l.target) === hoverId);
-            return l.invalidated ? 0.3 : hot ? 1.6 : 0.8;
+            const focus = hoverId ?? selId;
+            const hot = focus && (idOf(l.source) === focus || idOf(l.target) === focus);
+            return l.invalidated ? 0.3 : hot ? 1.8 : 0.7;
           }}
           linkDirectionalParticles={(l: any) => {
             if (l.invalidated) return 0;
-            const hot = hoverId && (idOf(l.source) === hoverId || idOf(l.target) === hoverId);
-            return hot ? 4 : 2;
+            const focus = hoverId ?? selId;
+            return focus && (idOf(l.source) === focus || idOf(l.target) === focus) ? 3 : 0;
           }}
-          linkDirectionalParticleWidth={(l: any) => {
-            const hot = hoverId && (idOf(l.source) === hoverId || idOf(l.target) === hoverId);
-            return hot ? 2.4 : 1.5;
-          }}
+          linkDirectionalParticleWidth={2}
           linkDirectionalParticleColor={() => "rgba(91,157,255,0.85)"}
-          linkDirectionalArrowLength={2.5}
-          linkDirectionalArrowRelPos={1}
-          linkLabel={(l: any) => `${l.rel}${l.invalidated ? " (past)" : ""}`}
           onNodeClick={onNode as any}
           onBackgroundClick={() => setSelected(null)}
         />
@@ -402,9 +485,7 @@ export function GraphPage() {
                   <span className="text-[12px] capitalize text-muted">{selected.type}</span>
                 </div>
               </div>
-              <button onClick={() => setSelected(null)} className="text-faint transition hover:text-fg">
-                <X size={16} />
-              </button>
+              <button onClick={() => setSelected(null)} className="text-faint transition hover:text-fg"><X size={16} /></button>
             </div>
 
             <button
@@ -436,7 +517,7 @@ export function GraphPage() {
                 <div className="space-y-1.5">
                   {(detail?.edges ?? []).map((e: any) => (
                     <div key={e.id} className={cn("rounded-lg border border-border bg-card px-3 py-2 text-[13px]", e.invalidated_at && "opacity-45")}>
-                      <span className="font-mono text-honey/90">{e.rel}</span>
+                      <span className="font-mono text-accent/90">{e.rel}</span>
                       <div className="mt-0.5 flex items-center gap-2 text-[11px] text-faint">
                         <span>confidence {Number(e.confidence).toFixed(2)}</span>
                         {e.invalidated_at && <Pill tone="withhold">past</Pill>}

@@ -8,6 +8,8 @@ export default defineConfig({
     proxy: {
       "/api": "http://localhost:4800",
       "/ws/dash": { target: "ws://localhost:4800", ws: true },
+      // read live channel health straight from the bee runtime for honest status
+      "/bee-api": { target: "http://localhost:4801", rewrite: (p) => p.replace(/^\/bee-api/, "/api") },
     },
   },
 });

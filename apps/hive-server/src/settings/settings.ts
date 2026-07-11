@@ -15,6 +15,7 @@ export interface ProactiveConfig {
   cooldownHours: number;
   heartbeatMinGapHours: number;
   autoApprove: boolean;
+  undoWindowSec: number; // hold approved nudges this long so the operator can recall them (0 = send now)
 }
 
 const DEFAULT_PROACTIVE: ProactiveConfig = {
@@ -22,6 +23,7 @@ const DEFAULT_PROACTIVE: ProactiveConfig = {
   cooldownHours: 2,
   heartbeatMinGapHours: 24,
   autoApprove: true,
+  undoWindowSec: 20,
 };
 
 function getJson<T>(key: string, fallback: T): T {
@@ -60,6 +62,24 @@ export function getProactive(): ProactiveConfig {
 }
 export function setProactive(cfg: Partial<ProactiveConfig>): void {
   setJson("proactive", { ...getProactive(), ...cfg });
+}
+
+// Public "how to reach us" address per channel, so members get a real join link.
+export interface ChannelInfo {
+  telegram?: { username: string }; // → t.me/<username>
+  discord?: { inviteUrl: string };
+  imessage?: { handle: string }; // phone number or Apple ID email of the hive's Mac
+}
+export function getChannelInfo(): ChannelInfo {
+  return getJson<ChannelInfo>("channelInfo", {});
+}
+export function setChannelInfo(patch: Partial<ChannelInfo>): void {
+  setJson("channelInfo", { ...getChannelInfo(), ...patch });
+}
+export function clearChannelInfo(channel: keyof ChannelInfo): void {
+  const info = getChannelInfo();
+  delete info[channel];
+  setJson("channelInfo", info);
 }
 
 export interface ResolvedRole {

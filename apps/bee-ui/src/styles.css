@@ -2,3 +2,14 @@
    to also scan the shared package's components for utility classes. */
 @import "@hive/ui/styles.css";
 @source "../../../packages/ui/src";
+
+/* Bee's identity: warm amber accent (the Hive dashboard keeps the cool blue). */
+:root {
+  --accent: #f0a92b;
+  --accent-soft: rgba(240, 169, 43, 0.16);
+  --shadow-accent: 0 2px 14px -4px rgba(240, 169, 43, 0.5);
+}
+:root.light {
+  --accent: #b46b12;
+  --accent-soft: rgba(180, 107, 18, 0.14);
+}

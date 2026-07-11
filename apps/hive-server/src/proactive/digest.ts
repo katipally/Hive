@@ -1,14 +1,13 @@
-import { id } from "@hive/shared";
 import { getDb } from "../db/db.js";
 import { getMember } from "../db/repo.js";
 import { callRole } from "../llm/call.js";
-import { insertNudge } from "./store.js";
-import { deliverNudgeById } from "./nudges.js";
-import { logActivity } from "../activity.js";
+import { proposeCandidate } from "./nudges.js";
 
 const DIGEST_SYSTEM = `You write a short, warm "here's your week" note from a person's Hive bee. Two or three sentences, friendly and specific, referencing what they've been up to. No lists, no preamble — just the note.`;
 
-// Compose and deliver a personal digest to a member from their recent memories.
+// Compose a personal digest and hand it to the one nudge funnel (self-addressed, so
+// disclosure is skipped, but it still gets cooldown/dedup/undo/quiet-hours like any nudge).
+// The "digest" topic dedups over 7 days, which naturally enforces the weekly cadence.
 export async function sendDigest(memberId: string): Promise<boolean> {
   const member = getMember(memberId);
   if (!member) return false;
@@ -33,22 +32,14 @@ export async function sendDigest(memberId: string): Promise<boolean> {
   }
   if (!draft) return false;
 
-  const nudge = {
-    id: id("ndg"),
-    memberId,
-    kind: "heartbeat" as const,
-    status: "queued" as const,
+  await proposeCandidate({
+    recipientMemberId: memberId,
+    aboutMemberId: memberId,
+    kind: "heartbeat",
+    reason: "weekly digest",
+    topic: "digest",
+    sourceMemoryIds: [],
     draft,
-    reasoning: "weekly digest",
-    source: { kind: "digest" },
-    dedupKey: `digest:${new Date(Date.now()).toISOString().slice(0, 10)}`,
-    channelIdentityId: null,
-    createdAt: Date.now(),
-    sentAt: null,
-    suppressReason: null,
-  };
-  insertNudge(nudge);
-  logActivity("nudge", memberId, { summary: "weekly digest queued" });
-  await deliverNudgeById(nudge.id);
+  });
   return true;
 }

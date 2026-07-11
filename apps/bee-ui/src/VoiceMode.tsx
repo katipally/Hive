@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Mic, MicOff, X } from "lucide-react";
-import { cn } from "@hive/ui";
+import { cn, Thinking } from "@hive/ui";
 import { Orb, type BeePhase } from "./Orb.js";
 
 const PHASE_LABEL: Record<BeePhase, string> = {
@@ -35,7 +35,7 @@ export function VoiceMode({
           className="fixed inset-0 z-40 flex flex-col items-center justify-center bg-bg/95 backdrop-blur-xl"
         >
           <div className="absolute top-6 flex items-center gap-2 text-[13px] font-medium text-muted">
-            <span className="size-1.5 rounded-full bg-honey" /> {name}
+            <span className="size-1.5 rounded-full bg-accent" /> {name}
           </div>
 
           <motion.div
@@ -47,9 +47,13 @@ export function VoiceMode({
           </motion.div>
 
           <div className="mt-8 flex h-16 flex-col items-center gap-2 px-8 text-center">
-            <div className={cn("text-[14px] font-medium", phase === "listening" ? "text-share" : phase === "speaking" ? "text-honey" : "text-muted")}>
-              {PHASE_LABEL[phase]}
-            </div>
+            {phase === "thinking" ? (
+              <Thinking />
+            ) : (
+              <div className={cn("text-[14px] font-medium", phase === "listening" ? "text-share" : phase === "speaking" ? "text-accent" : "text-muted")}>
+                {PHASE_LABEL[phase]}
+              </div>
+            )}
             {transcript && <div className="max-w-md text-[15px] leading-snug text-fg">{transcript}</div>}
           </div>
 

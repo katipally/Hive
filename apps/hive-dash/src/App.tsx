@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from "motion/react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { Share2, Zap, ShieldCheck, Users, SlidersHorizontal } from "lucide-react";
+import { Share2, Zap, ShieldCheck, Users, SlidersHorizontal, MessagesSquare, Cable } from "lucide-react";
 import { HexMark } from "./components/Logo.js";
-import { ThemeToggle } from "@hive/ui";
+import { ThemeToggle, StatusDot } from "@hive/ui";
 import { cn } from "./lib/cn.js";
 import { fadeUp } from "./lib/motion.js";
 import { useDashSocket } from "./useDashSocket.js";
@@ -12,12 +12,16 @@ import { MembersPage } from "./pages/MembersPage.js";
 import { SettingsPage } from "./pages/SettingsPage.js";
 import { DisclosuresPage } from "./pages/DisclosuresPage.js";
 import { ProactivePage } from "./pages/ProactivePage.js";
+import { PollsPage } from "./pages/PollsPage.js";
+import { ChannelsPage } from "./pages/ChannelsPage.js";
 
 const TABS = [
   { path: "graph", label: "Knowledge graph", Icon: Share2 },
   { path: "proactive", label: "Proactive", Icon: Zap },
+  { path: "polls", label: "Polls", Icon: MessagesSquare },
   { path: "disclosures", label: "Disclosures", Icon: ShieldCheck },
   { path: "members", label: "Members", Icon: Users },
+  { path: "channels", label: "Channels", Icon: Cable },
   { path: "settings", label: "Settings", Icon: SlidersHorizontal },
 ] as const;
 
@@ -41,25 +45,20 @@ export function App() {
             className={({ isActive }) =>
               cn(
                 "group flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition",
-                isActive ? "bg-honey-soft text-honey" : "text-muted hover:bg-fg/[0.05] hover:text-fg",
+                isActive ? "bg-accent-soft text-accent" : "text-muted hover:bg-fg/[0.05] hover:text-fg",
               )
             }
           >
             {({ isActive }) => (
               <>
-                <Icon size={16} className={cn(isActive ? "text-honey" : "text-faint group-hover:text-fg")} />
+                <Icon size={16} className={cn(isActive ? "text-accent" : "text-faint group-hover:text-fg")} />
                 {label}
               </>
             )}
           </NavLink>
         ))}
         <div className="mt-auto flex items-center gap-2 px-3 pt-4 text-[11px] text-muted" aria-live="polite">
-          <span
-            className={cn(
-              "size-2 rounded-full transition-colors",
-              online ? "bg-share shadow-[0_0_8px_var(--color-share)]" : "bg-faint",
-            )}
-          />
+          <StatusDot online={online} />
           {online ? "Hive connected" : "reconnecting…"}
         </div>
       </nav>
@@ -78,8 +77,10 @@ export function App() {
               <Route index element={<Navigate to="/graph" replace />} />
               <Route path="graph" element={<GraphPage />} />
               <Route path="proactive" element={<ProactivePage />} />
+              <Route path="polls" element={<PollsPage />} />
               <Route path="disclosures" element={<DisclosuresPage />} />
               <Route path="members" element={<MembersPage />} />
+              <Route path="channels" element={<ChannelsPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="*" element={<Navigate to="/graph" replace />} />
             </Routes>

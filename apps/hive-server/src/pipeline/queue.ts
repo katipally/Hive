@@ -20,6 +20,29 @@ export function enqueue(job: Job): void {
   void drain();
 }
 
+// Re-enqueue extraction for any turns left unprocessed by a crash/restart. The
+// in-memory queue is otherwise lost on restart; this recovers it at boot.
+export function sweepPendingExtractions(): void {
+  const rows = getDb()
+    .db.prepare("SELECT DISTINCT member_id, session_id FROM turns WHERE extracted_at IS NULL")
+    .all() as { member_id: string; session_id: string }[];
+  for (const r of rows) enqueue({ kind: "extract", memberId: r.member_id, sessionId: r.session_id });
+}
+
+// Implications (event-driven nudges) live only in the in-memory queue too — recover
+// any extracted memories that never got their implications pass. Conclude self-heals
+// (it re-fires at the next multiple of 10), so it needs no sweep.
+export function sweepPendingImplications(): void {
+  const rows = getDb()
+    .db.prepare(
+      "SELECT member_id, id FROM memories WHERE implications_at IS NULL AND kind != 'conclusion' ORDER BY created_at",
+    )
+    .all() as { member_id: string; id: string }[];
+  const byMember = new Map<string, string[]>();
+  for (const r of rows) (byMember.get(r.member_id) ?? byMember.set(r.member_id, []).get(r.member_id)!).push(r.id);
+  for (const [memberId, memoryIds] of byMember) enqueue({ kind: "implications", memberId, memoryIds });
+}
+
 async function drain(): Promise<void> {
   if (running) return;
   running = true;

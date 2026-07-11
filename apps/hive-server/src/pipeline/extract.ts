@@ -73,6 +73,9 @@ export async function runExtraction(memberId: string, sessionId: string): Promis
   const ex = await callRoleJson<Extraction>("extraction", {
     system: EXTRACT_SYSTEM,
     messages: [{ role: "user", content: extractUser(member.name, existingContext, window) }],
+    // real models occasionally emit valid JSON of the wrong shape — force a retry so a turn's
+    // knowledge isn't silently dropped by `ex.memories ?? []` below.
+    validate: (v): boolean => !!v && typeof v === "object" && Array.isArray((v as { memories?: unknown }).memories),
   });
 
   const memberEntityId = upsertEntity(member.name, "person", memberId);

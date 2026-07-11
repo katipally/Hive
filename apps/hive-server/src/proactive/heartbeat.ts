@@ -4,19 +4,44 @@ import { getProactive } from "../settings/settings.js";
 import { callRoleJson } from "../llm/call.js";
 import { HEARTBEAT_SYSTEM, heartbeatUser } from "../prompts/proactive.js";
 import { proposeCandidate, deliverQueued, inQuietHours } from "./nudges.js";
+import { pruneNudges } from "./store.js";
 import { runOrchestrator } from "./orchestrator.js";
-import { logActivity } from "../activity.js";
+import { sendDigest } from "./digest.js";
+import { closeDuePolls } from "../polling/polls.js";
+import { logActivity, pruneActivity } from "../activity.js";
+import { pruneDisclosures } from "../disclosure/store.js";
 import { roleConfigured } from "../settings/settings.js";
 
 let lastOrchestrator = 0;
+let started = false;
+let running = false;
+// per-member weekly digest gate (in-memory). The digest's 7-day topic dedup is the
+// real backstop; this just avoids composing a draft we'd only throw away.
+// ponytail: in-memory, resets on restart — worst case one extra (deduped) digest per boot.
+const WEEK_MS = 7 * 86_400_000;
+const lastDigest = new Map<string, number>();
 
-let timer: NodeJS.Timeout | null = null;
-
+// Self-scheduling so the interval reflects settings changes without a restart,
+// and re-entrancy guarded so a slow tick never overlaps the next.
 export function startHeartbeat(): void {
-  if (timer) return;
-  const intervalMs = getProactive().heartbeatIntervalMin * 60_000;
-  timer = setInterval(() => void runHeartbeatTick(), intervalMs);
-  timer.unref?.();
+  if (started) return;
+  started = true;
+  const loop = () => {
+    const intervalMs = Math.max(30_000, getProactive().heartbeatIntervalMin * 60_000);
+    const t = setTimeout(async () => {
+      if (!running) {
+        running = true;
+        try {
+          await runHeartbeatTick();
+        } finally {
+          running = false;
+        }
+      }
+      loop();
+    }, intervalMs);
+    t.unref?.();
+  };
+  loop();
 }
 
 interface HeartbeatOut {
@@ -27,8 +52,12 @@ interface HeartbeatOut {
 }
 
 export async function runHeartbeatTick(): Promise<void> {
-  // always try to flush queued (held) nudges
+  // always try to flush queued (held) nudges + keep the stores bounded
   deliverQueued();
+  closeDuePolls(); // synthesize any polls whose collection window has elapsed
+  pruneActivity();
+  pruneNudges();
+  pruneDisclosures();
   if (!roleConfigured("social")) return;
 
   const p = getProactive();
@@ -59,6 +88,7 @@ export async function runHeartbeatTick(): Promise<void> {
       const out = await callRoleJson<HeartbeatOut>("social", {
         system: HEARTBEAT_SYSTEM,
         messages: [{ role: "user", content: heartbeatUser(member.name, new Date().toISOString(), slice) }],
+        validate: (v): boolean => !!v && typeof (v as { worthIt?: unknown }).worthIt === "boolean",
       });
       if (out.worthIt) {
         const about = out.about && out.about.toLowerCase() !== "self" ? getMemberByName(out.about) : member;
@@ -75,6 +105,12 @@ export async function runHeartbeatTick(): Promise<void> {
       }
     } catch (e) {
       logActivity("error", member.id, { stage: "heartbeat", error: (e as Error).message });
+    }
+
+    // weekly "here's your week" digest — self-addressed nudge, gated to once per 7 days.
+    if (Date.now() - (lastDigest.get(member.id) ?? 0) > WEEK_MS) {
+      lastDigest.set(member.id, Date.now());
+      await sendDigest(member.id).catch(() => {});
     }
     touchHeartbeat(member.id);
   }

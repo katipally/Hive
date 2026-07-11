@@ -60,13 +60,23 @@ export function setNudgeStatus(id: string, status: NudgeStatus, extra?: { sentAt
   if (n) broadcastDash({ type: "nudge.updated", nudge: n });
 }
 
-export function listNudges(limit = 200): Nudge[] {
+export function listNudges(limit = 200, offset = 0): Nudge[] {
   return (
-    getDb().db.prepare("SELECT * FROM nudges ORDER BY created_at DESC LIMIT ?").all(limit) as Record<
+    getDb().db.prepare("SELECT * FROM nudges ORDER BY created_at DESC LIMIT ? OFFSET ?").all(limit, offset) as Record<
       string,
       unknown
     >[]
   ).map(rowToNudge);
+}
+
+// Bound the nudge ledger — keep pending ones (proposed/queued) plus recent history.
+export function pruneNudges(keep = 2000): void {
+  getDb()
+    .db.prepare(
+      `DELETE FROM nudges WHERE status NOT IN ('proposed','queued')
+       AND id NOT IN (SELECT id FROM nudges ORDER BY created_at DESC LIMIT ?)`,
+    )
+    .run(keep);
 }
 
 // recent sent nudges for cooldown/dedup checks

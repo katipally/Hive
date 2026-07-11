@@ -3,13 +3,15 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { WebSocketServer, type WebSocket } from "ws";
 import { randomBytes } from "node:crypto";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { id } from "@hive/shared";
 import type { ChannelAdapter, InboundMessage, ReplySink } from "./types.js";
 import { Bee } from "../bee.js";
-import { saveConfig, type BeeConfig, type BeeInstanceConfig } from "../config.js";
-import { sessionTurns } from "../sessions.js";
+import { saveConfig, dataDir, type BeeConfig, type BeeInstanceConfig } from "../config.js";
+import { displayTurns, deleteDisplay } from "../sessions.js";
 
 // Web channel: bee-ui connects over WS. externalId = a client-persisted uid.
 export class WebChannel implements ChannelAdapter {
@@ -25,7 +27,7 @@ export class WebChannel implements ChannelAdapter {
     this.conns.clear();
   }
 
-  attach(ws: WebSocket, externalId: string): void {
+  attach(ws: WebSocket, externalId: string, sessionTag?: string): void {
     if (!this.conns.has(externalId)) this.conns.set(externalId, new Set());
     this.conns.get(externalId)!.add(ws);
     ws.on("close", () => this.conns.get(externalId)?.delete(ws));
@@ -43,7 +45,7 @@ export class WebChannel implements ChannelAdapter {
         notice: (text) => ws.send(JSON.stringify({ type: "notice", text })),
       };
       this.onMessage?.(
-        { channel: "web", externalId, displayName: null, text: m.text, ts: Date.now() },
+        { channel: "web", externalId, displayName: null, text: m.text, ts: Date.now(), sessionTag },
         sink,
       );
     });
@@ -98,12 +100,64 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
     const nm = name?.trim() || `bee-${bees.size + 1}`;
     return c.json(addBee(nm));
   });
-  // Server-backed chat history for the web client (persists across devices).
-  app.get("/api/history", (c) => {
-    const bee = c.req.query("bee") ?? "";
+  // Remove a profile for good: stop the Bee + its adapters, drop it from config,
+  // and delete its on-disk sessions. Always keep at least one profile.
+  app.delete("/api/bees/:beeId", async (c) => {
+    const beeId = c.req.param("beeId");
+    const bee = bees.get(beeId);
+    if (!bee) return c.json({ error: "unknown profile" }, 404);
+    if (bees.size <= 1) return c.json({ error: "can't remove your only profile" }, 400);
+    await bee.stop();
+    bees.delete(beeId);
+    webChannels.delete(beeId);
+    const idx = cfg.instances.findIndex((i) => i.beeId === beeId);
+    if (idx >= 0) cfg.instances.splice(idx, 1);
+    saveConfig(cfg);
+    rmSync(join(dataDir(), "sessions", beeId), { recursive: true, force: true });
+    return c.json({ ok: true });
+  });
+  // ---- "reach your bee elsewhere" (read-only; bots are set up by the operator) ----
+  // Live channel health (used by the operator dashboard's verify).
+  app.get("/api/channels", (c) => {
+    const bee = bees.get(c.req.query("bee") ?? "");
+    if (!bee) return c.json({ error: "unknown bee" }, 404);
+    return c.json(bee.channelHealth());
+  });
+  // Public join addresses (bot links / iMessage handle) — passthrough from the hive.
+  app.get("/api/channel-info", async (c) => {
+    const info = await fetch(`${cfg.hiveHttpUrl}/api/channel-info`).then((x) => x.json()).catch(() => ({}));
+    return c.json(info as Record<string, unknown>);
+  });
+  // This web member's own invite code, so the guide can show "send this to link".
+  app.get("/api/my-code", async (c) => {
+    const bee = bees.get(c.req.query("bee") ?? "");
+    if (!bee) return c.json({});
+    return c.json(await bee.webMemberCode(c.req.query("uid") ?? ""));
+  });
+
+  // Server-backed chat history (incl. nudges/polls) for the web client. Reads the
+  // member's unified display transcript so proactive messages survive a refresh.
+  app.get("/api/history", async (c) => {
+    const beeId = c.req.query("bee") ?? "";
     const uid = c.req.query("uid") ?? "";
+    const session = c.req.query("session") || "main";
+    const bee = bees.get(beeId);
     if (!bee || !uid) return c.json([]);
-    return c.json(sessionTurns(bee, `web:${uid}`));
+    const sid = await bee.sessionForMember("web", uid, session);
+    if (!sid) return c.json([]);
+    return c.json(displayTurns(beeId, sid));
+  });
+  // Delete a single conversation thread's server-side transcript (display + LLM
+  // session + compaction) so the reset is real, not just local.
+  app.delete("/api/history", async (c) => {
+    const beeId = c.req.query("bee") ?? "";
+    const uid = c.req.query("uid") ?? "";
+    const session = c.req.query("session") || "main";
+    const bee = bees.get(beeId);
+    if (!bee || !uid) return c.json({ ok: false }, 400);
+    const sid = await bee.sessionForMember("web", uid, session);
+    if (sid) deleteDisplay(beeId, sid);
+    return c.json({ ok: true });
   });
   app.get("/api/health", (c) => c.json({ ok: true }));
 
@@ -118,11 +172,12 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
     }
     const beeId = url.searchParams.get("bee") ?? "";
     const uid = url.searchParams.get("uid") ?? "";
+    const session = url.searchParams.get("session") ?? undefined;
     const wc = webChannels.get(beeId);
     if (!wc || !uid) {
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => wc.attach(ws, uid));
+    wss.handleUpgrade(req, socket, head, (ws) => wc.attach(ws, uid, session));
   });
 }

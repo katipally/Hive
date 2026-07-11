@@ -12,7 +12,7 @@ export interface BeeInstanceConfig {
     web?: { enabled: boolean };
     telegram?: { botToken: string };
     discord?: { botToken: string };
-    imessage?: { enabled: boolean };
+    imessage?: { enabled: boolean; dbPath?: string }; // dbPath → a dedicated macOS user's chat.db
   };
   // iMessage poll cursor (M9)
   imessageCursor?: number;
@@ -33,7 +33,10 @@ export function dataDir(): string {
 }
 
 function defaults(): BeeConfig {
-  // Seed 3 local bee instances for a friend-group demo (all on the web channel).
+  // One hive bee hosts the shared channels and serves every member (each channel
+  // address maps to a member via identity). Extra bees are for testing only and
+  // are created on demand from the web UI — never seed several (that split channel
+  // config across bees). See the multi-bee split note in docs/SETUP.md.
   const mk = (name: string): BeeInstanceConfig => ({
     beeId: id("bee"),
     beeToken: randomBytes(16).toString("hex"),
@@ -44,7 +47,7 @@ function defaults(): BeeConfig {
     hiveWsUrl: process.env["HIVE_WS_URL"] ?? "ws://localhost:4800/ws/bee",
     hiveHttpUrl: process.env["HIVE_HTTP_URL"] ?? "http://localhost:4800",
     webPort: Number(process.env["BEE_PORT"] ?? 4801),
-    instances: [mk("bee-1"), mk("bee-2"), mk("bee-3")],
+    instances: [mk("me")],
   };
 }
 

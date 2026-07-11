@@ -6,6 +6,9 @@ export interface InboundMessage {
   displayName: string | null;
   text: string;
   ts: number;
+  // web only: which conversation thread this belongs to (multiple per profile).
+  // Channels omit it → one continuous "main" thread.
+  sessionTag?: string;
 }
 
 // Where a reply is written. Streaming channels use delta(); others buffer to done().

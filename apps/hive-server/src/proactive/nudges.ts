@@ -1,6 +1,6 @@
 import { id } from "@hive/shared";
 import type { Member, Nudge, NudgeKind } from "@hive/shared";
-import { getMember, listIdentities, getIdentity } from "../db/repo.js";
+import { getMember, pickIdentity } from "../db/repo.js";
 import { getProactive, getBeeSettings } from "../settings/settings.js";
 import { callRole } from "../llm/call.js";
 import { COMPOSE_SYSTEM, composeUser } from "../prompts/proactive.js";
@@ -16,6 +16,7 @@ export interface Candidate {
   reason: string;
   topic: string;
   sourceMemoryIds: string[];
+  draft?: string; // pre-composed message (e.g. weekly digest); skips the compose step
 }
 
 const DAY = 86_400_000;
@@ -25,6 +26,35 @@ onNudgeResult((nudgeId, status, error) => {
   if (status === "delivered") setNudgeStatus(nudgeId, "sent", { sentAt: Date.now() });
   else setNudgeStatus(nudgeId, "failed", { suppressReason: error ?? "delivery failed" });
 });
+
+// Undo/recall window: an approved nudge waits briefly before it actually goes out,
+// so the operator can pull it back. Timers are in-memory (best-effort per session).
+const pendingUndo = new Map<string, NodeJS.Timeout>();
+
+// Send now, or hold for the configured undo window then send.
+export function scheduleDelivery(nudgeId: string): void {
+  const windowMs = getProactive().undoWindowSec * 1000;
+  if (windowMs <= 0) {
+    void deliverNudgeById(nudgeId);
+    return;
+  }
+  const t = setTimeout(() => {
+    pendingUndo.delete(nudgeId);
+    void deliverNudgeById(nudgeId);
+  }, windowMs);
+  t.unref?.();
+  pendingUndo.set(nudgeId, t);
+}
+
+// Recall a nudge still inside its window. Returns false if it already went out.
+export function undoNudge(nudgeId: string): boolean {
+  const t = pendingUndo.get(nudgeId);
+  if (!t) return false;
+  clearTimeout(t);
+  pendingUndo.delete(nudgeId);
+  setNudgeStatus(nudgeId, "dismissed", { suppressReason: "recalled by operator" });
+  return true;
+}
 
 export async function proposeCandidate(cand: Candidate): Promise<void> {
   const recipient = getMember(cand.recipientMemberId);
@@ -75,16 +105,20 @@ export async function proposeCandidate(cand: Candidate): Promise<void> {
     shareable = verdict.disclosed;
   }
 
-  // compose
+  // compose (unless the source already wrote the message, e.g. weekly digest)
   let draft: string;
-  try {
-    draft = (await callRole("social", {
-      system: COMPOSE_SYSTEM,
-      messages: [{ role: "user", content: composeUser(recipient.name, shareable, cand.reason) }],
-    })).trim();
-  } catch (e) {
-    suppress(`compose failed: ${(e as Error).message}`);
-    return;
+  if (cand.draft) {
+    draft = cand.draft.trim();
+  } else {
+    try {
+      draft = (await callRole("social", {
+        system: COMPOSE_SYSTEM,
+        messages: [{ role: "user", content: composeUser(recipient.name, shareable, cand.reason) }],
+      })).trim();
+    } catch (e) {
+      suppress(`compose failed: ${(e as Error).message}`);
+      return;
+    }
   }
   if (!draft) {
     suppress("empty draft");
@@ -95,7 +129,7 @@ export async function proposeCandidate(cand: Candidate): Promise<void> {
   const nudge = mkNudge(cand, dedupKey, status, draft, null);
   insertNudge(nudge);
   logActivity("nudge", cand.recipientMemberId, { summary: `${status}: ${cand.reason}`, topic: cand.topic });
-  if (status === "queued") await deliverNudgeById(nudge.id);
+  if (status === "queued") scheduleDelivery(nudge.id);
 }
 
 function mkNudge(
@@ -122,6 +156,7 @@ function mkNudge(
 }
 
 export async function deliverNudgeById(nudgeId: string): Promise<void> {
+  pendingUndo.delete(nudgeId); // it's going out now
   const nudge = getNudge(nudgeId);
   if (!nudge || !nudge.draft) return;
   const member = getMember(nudge.memberId);
@@ -153,15 +188,7 @@ export async function deliverNudgeById(nudgeId: string): Promise<void> {
 export function deliverQueued(): void {
   const { db } = getDbLazy();
   const rows = db.prepare("SELECT id FROM nudges WHERE status='queued'").all() as { id: string }[];
-  for (const r of rows) void deliverNudgeById(r.id);
-}
-
-function pickIdentity(member: Member) {
-  if (member.preferredChannelIdentityId) {
-    const ci = getIdentity(member.preferredChannelIdentityId);
-    if (ci) return ci;
-  }
-  return listIdentities(member.id)[0] ?? null;
+  for (const r of rows) if (!pendingUndo.has(r.id)) void deliverNudgeById(r.id); // don't jump the undo window
 }
 
 export function inQuietHours(member: Member): boolean {

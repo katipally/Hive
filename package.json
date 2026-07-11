@@ -8,10 +8,10 @@
   "scripts": {
     "dev": "concurrently -n hive,bee,dash,bee-ui -c cyan,yellow,green,magenta \"pnpm -C apps/hive-server dev\" \"pnpm -C apps/bee dev\" \"pnpm -C apps/hive-dash dev\" \"pnpm -C apps/bee-ui dev\"",
     "dev:server": "concurrently -n hive,bee -c cyan,yellow \"pnpm -C apps/hive-server dev\" \"pnpm -C apps/bee dev\"",
-    "build": "pnpm -C packages/shared build && pnpm -C apps/hive-dash build && pnpm -C apps/bee-ui build && pnpm -C apps/hive-server build && pnpm -C apps/bee build",
+    "build": "pnpm -C packages/shared build && pnpm -C apps/hive-dash build && pnpm -C apps/bee-ui build",
     "typecheck": "pnpm -r typecheck",
     "seed": "pnpm -C apps/hive-server seed",
-    "smoke": "pnpm -C apps/hive-server smoke"
+    "smoke": "bash scripts/smoke.sh"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

@@ -30,8 +30,8 @@ interface MemberLite {
   name: string;
 }
 
-const STATUS_TONE: Record<string, "muted" | "honey" | "share" | "partial" | "withhold"> = {
-  proposed: "honey",
+const STATUS_TONE: Record<string, "muted" | "accent" | "share" | "partial" | "withhold"> = {
+  proposed: "accent",
   queued: "partial",
   sent: "share",
   suppressed: "muted",
@@ -78,7 +78,7 @@ export function ProactivePage() {
   });
 
   const nm = (id: string | null) => (id ? names[id] ?? id.slice(0, 6) : "hive");
-  async function act(id: string, action: "approve" | "dismiss") {
+  async function act(id: string, action: "approve" | "dismiss" | "undo") {
     await api(`/api/nudges/${id}/${action}`, { method: "POST" });
     loadNudges();
   }
@@ -98,7 +98,7 @@ export function ProactivePage() {
           subtitle="What the hive is deciding to reach out about — and why."
           actions={
             <Button variant="primary" onClick={findConnections} disabled={orchestrating}>
-              <Sparkles size={14} className={orchestrating ? "animate-pulse" : ""} /> {orchestrating ? "Thinking…" : "Find connections"}
+              <Sparkles size={14} className={orchestrating ? "animate-pulse" : ""} /> {orchestrating ? "finding connections…" : "Find connections"}
             </Button>
           }
         />
@@ -106,11 +106,11 @@ export function ProactivePage() {
         {shared.length > 0 && (
           <div className="mb-4 rounded-2xl border border-border bg-card p-4">
             <div className="mb-2 flex items-center gap-2 text-[13px] font-medium text-fg">
-              <Users size={15} className="text-honey" /> Shared across the group
+              <Users size={15} className="text-accent" /> Shared across the group
             </div>
             <div className="flex flex-wrap gap-2">
               {shared.map((s) => (
-                <span key={s.entity} className="rounded-full border border-honey/20 bg-honey-soft/50 px-3 py-1 text-[12px]">
+                <span key={s.entity} className="rounded-full border border-accent/20 bg-accent-soft/50 px-3 py-1 text-[12px]">
                   <span className="text-fg">{s.entity}</span>
                   <span className="text-faint"> · {s.members.join(", ")}</span>
                 </span>
@@ -136,7 +136,7 @@ export function ProactivePage() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.97 }}
                   transition={stagger(i)}
-                  className="rounded-2xl border border-honey/20 bg-card p-4"
+                  className="rounded-2xl border border-accent/20 bg-card p-4"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2 text-[13px]">
@@ -147,7 +147,7 @@ export function ProactivePage() {
                     <Pill tone={STATUS_TONE[n.status] ?? "muted"}>{n.status}</Pill>
                   </div>
                   {n.draft && (
-                    <div className="mt-2.5 rounded-xl bg-honey-soft/60 px-3.5 py-2.5 text-[14px] leading-relaxed text-fg">
+                    <div className="mt-2.5 rounded-xl bg-accent-soft/60 px-3.5 py-2.5 text-[14px] leading-relaxed text-fg">
                       {n.draft}
                     </div>
                   )}
@@ -159,6 +159,14 @@ export function ProactivePage() {
                       </Button>
                       <Button variant="ghost" onClick={() => act(n.id, "dismiss")}>
                         <X size={14} /> Dismiss
+                      </Button>
+                    </div>
+                  )}
+                  {n.status === "queued" && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <span className="text-[12px] text-muted">Sending shortly…</span>
+                      <Button variant="ghost" onClick={() => act(n.id, "undo")}>
+                        <X size={14} /> Undo
                       </Button>
                     </div>
                   )}
@@ -226,9 +234,13 @@ export function ProactivePage() {
   );
 }
 
+// Most events carry a human `summary`; this only formats the rare ones that don't,
+// as readable "key: value" pairs (scalars only) rather than a raw JSON dump.
 function summarize(p: Record<string, unknown>): string {
   if (p["summary"]) return String(p["summary"]);
   if (p["error"]) return `error: ${p["error"]}`;
-  const keys = Object.keys(p);
-  return keys.length ? keys.map((k) => `${k}=${JSON.stringify(p[k])}`).join(" ").slice(0, 100) : "";
+  const parts = Object.entries(p)
+    .filter(([, v]) => v != null && typeof v !== "object")
+    .map(([k, v]) => `${k}: ${v}`);
+  return parts.join(" · ").slice(0, 120);
 }
