@@ -173,6 +173,9 @@ export async function readUrl(url: string): Promise<{ configured: boolean; page?
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return { configured: true, error: "only http(s) URLs can be read" };
   }
+  if (isPrivateHost(parsed.hostname)) {
+    return { configured: true, error: "that address isn't allowed" }; // SSRF guard
+  }
   if (!chargeSearch()) return { configured: true, error: "search daily limit reached" };
 
   const key = exaKey();
@@ -231,4 +234,23 @@ async function keylessRead(parsed: URL): Promise<PageContent> {
 
 function firstLine(s: string): string {
   return (s.split("\n").find((l) => l.trim())?.trim() ?? "").replace(/^#+\s*/, "").slice(0, 120);
+}
+
+// Block loopback / private / link-local / cloud-metadata targets so the reader can't be
+// pointed at internal services (SSRF). Best-effort on the literal host — DNS rebinding is
+// out of scope for a demo, but the obvious internal addresses are refused.
+function isPrivateHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local")) return true;
+  if (h === "::1" || h.startsWith("fe80:") || h.startsWith("fc") || h.startsWith("fd")) return true;
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return (
+    a === 0 || a === 127 || a === 10 || // this-host, loopback, private
+    (a === 172 && b >= 16 && b <= 31) || // private
+    (a === 192 && b === 168) || // private
+    (a === 169 && b === 254) || // link-local + 169.254.169.254 metadata
+    (a === 100 && b >= 64 && b <= 127) // carrier-grade NAT
+  );
 }

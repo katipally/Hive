@@ -4,8 +4,8 @@ import { lexicalSearch } from "./lexical.js";
 import { memberGraphFacts } from "../graph/traverse.js";
 import { decideDisclosure } from "../disclosure/agent.js";
 
-const MAX_HITS = 12;
-const MAX_OTHER_OWNERS = 3; // cap cross-member disclosure LLM calls per turn
+const MAX_HITS = Number(process.env["HIVE_RETRIEVAL_MAX_HITS"] ?? 12);
+const MAX_OTHER_OWNERS = Number(process.env["HIVE_RETRIEVAL_MAX_OWNERS"] ?? 3); // cap cross-member disclosure LLM calls per turn
 
 interface Mem {
   id: string;

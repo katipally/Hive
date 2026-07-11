@@ -397,7 +397,7 @@ export class Bee {
         baseUrl: this.cfg.hiveHttpUrl,
         system,
         tools,
-        maxTurns: 6,
+        maxTurns: Number(process.env["HIVE_AGENT_MAX_TURNS"] ?? 6),
       })) {
         if (ev.type === "turn_start") {
           curTurn = "";

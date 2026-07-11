@@ -47,6 +47,16 @@ export function startHeartbeat(): void {
   loop();
 }
 
+// Current time in the member's own timezone (QUAL-3) so "is anything worth messaging
+// them about RIGHT NOW" reasons about their local clock, not UTC.
+function localNow(timezone: string): string {
+  try {
+    return new Date().toLocaleString("en-US", { timeZone: timezone, dateStyle: "full", timeStyle: "short" });
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
 interface HeartbeatOut {
   worthIt: boolean;
   reason: string;
@@ -92,7 +102,7 @@ export async function runHeartbeatTick(): Promise<void> {
     try {
       const out = await callRoleJson<HeartbeatOut>("social", {
         system: HEARTBEAT_SYSTEM,
-        messages: [{ role: "user", content: heartbeatUser(member.name, new Date().toISOString(), slice) }],
+        messages: [{ role: "user", content: heartbeatUser(member.name, localNow(member.timezone), slice) }],
         validate: (v): boolean => !!v && typeof (v as { worthIt?: unknown }).worthIt === "boolean",
       });
       if (out.worthIt) {
