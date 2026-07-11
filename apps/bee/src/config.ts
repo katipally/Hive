@@ -43,11 +43,14 @@ function defaults(): BeeConfig {
     name,
     channels: { web: { enabled: true } },
   });
+  // Demo build: one bee per seeded member so the web UI shows Alice / Bob / Cara
+  // as switchable profiles, each its own person. (Normal runtime keeps a single bee.)
+  const instances = process.env["BEE_DEMO"] ? [mk("Alice"), mk("Bob"), mk("Cara")] : [mk("me")];
   return {
     hiveWsUrl: process.env["HIVE_WS_URL"] ?? "ws://localhost:4800/ws/bee",
     hiveHttpUrl: process.env["HIVE_HTTP_URL"] ?? "http://localhost:4800",
     webPort: Number(process.env["BEE_PORT"] ?? 4801),
-    instances: [mk("me")],
+    instances,
   };
 }
 

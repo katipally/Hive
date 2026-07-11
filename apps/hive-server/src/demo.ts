@@ -1,93 +1,32 @@
-// Demo scenario + one-shot bootstrap for the hosted/public build.
+// Demo bootstrap for the hosted/public build.
 //
-// The scenario is chosen to show the two things that make Hive Hive:
-//   1. Contextual-integrity disclosure — Bob & Cara are planning a SURPRISE party
-//      for Alice. Her birthday (Aug 2) may be shared with them; the surprise must
-//      never leak back to her.
-//   2. Proactive connection — Alice and Bob both love the outdoors and both want
-//      to go to Japan, a real introduction the orchestrator can surface.
+// The hive starts empty apart from three members. Their bees (BEE_DEMO) replay
+// realistic conversations on boot, and the graph, disclosures and proactive nudges
+// all emerge from those conversations through the normal pipeline — nothing here
+// hand-inserts facts. The scenario is built to show the two things that make Hive
+// Hive: contextual-integrity disclosure (Bob & Cara plan a SURPRISE for Alice that
+// must never leak to her) and proactive connection (Alice & Bob both love the
+// outdoors and both want to visit Japan).
 import { createMember, createPairingCode, listMembers } from "./db/repo.js";
-import { upsertEntity, insertMemory, insertEdge } from "./graph/write.js";
-import { embedTexts, embeddingsConfigured } from "./llm/call.js";
 import { hasSecret, putSecret } from "./crypto/keystore.js";
 import { setModelRole, setBaseUrl, roleConfigured } from "./settings/settings.js";
 import { runOrchestrator } from "./proactive/orchestrator.js";
 import type { ModelRole } from "@hive/shared";
 
-// Seed the demo friend group. Assumes the DB is already open. No-op if members
-// already exist, so it's safe to call on every boot.
+// Create the three members. No-op if they already exist, so it's safe every boot.
+// Facts/graph come from the bees replaying conversations, not from here.
 export async function seedDemo(): Promise<{ name: string; code: string }[]> {
-  if (listMembers().length > 0) return listMembers().map((m) => ({ name: m.name, code: createPairingCode(m.id) }));
-
-  const alice = createMember("Alice", "Europe/Berlin");
-  const bob = createMember("Bob", "America/New_York");
-  const cara = createMember("Cara", "Europe/London");
-  // No placeholder identity here — the bee's demo auto-pair links each member to a
-  // real web identity (`web-<name>`) with the live bee attached, so they show online.
-
-  const facts: Record<string, string[]> = {
-    [alice.id]: [
-      "Alice lives in Munich",
-      "Alice works at Acme as a designer",
-      "Alice's birthday is August 2",
-      "Alice loves rock climbing and being outdoors",
-      "Alice has always wanted to visit Japan",
-    ],
-    [bob.id]: [
-      "Bob lives in Brooklyn",
-      "Bob is a photographer",
-      "Bob loves hiking and the outdoors",
-      "Bob is saving up for a trip to Japan this autumn",
-      // the secret — owned by Bob, must be withheld from Alice
-      "Bob is secretly planning a surprise birthday party for Alice on August 2",
-    ],
-    [cara.id]: [
-      "Cara lives in London",
-      "Cara runs a small bakery called Rise",
-      "Cara and Alice met at university",
-      "Cara plays the cello",
-      // the secret — owned by Cara, must be withheld from Alice
-      "Cara is helping Bob organise Alice's surprise party and is baking the cake",
-    ],
-  };
-
-  const entity = (name: string, type: string, memberId: string | null = null) => upsertEntity(name, type, memberId);
-  const aE = entity("Alice", "person", alice.id);
-  const bE = entity("Bob", "person", bob.id);
-  const cE = entity("Cara", "person", cara.id);
-
-  for (const [memberId, texts] of Object.entries(facts)) {
-    const embs = embeddingsConfigured() ? await embedTexts(texts).catch(() => []) : [];
-    texts.forEach((t, i) =>
-      insertMemory({ memberId, kind: "raw", text: t, salience: 0.7, sourceTurnId: null, embedding: embs[i] }),
-    );
+  if (listMembers().length === 0) {
+    createMember("Alice", "Europe/Berlin");
+    createMember("Bob", "America/New_York");
+    createMember("Cara", "Europe/London");
   }
-
-  const rel = (src: string, r: string, dst: string) =>
-    insertEdge({ srcEntityId: src, rel: r, dstEntityId: dst, confidence: 0.9, validFrom: null, sourceMemoryId: null });
-  const japan = entity("Japan", "place");
-  const outdoors = entity("the outdoors", "topic");
-  rel(aE, "lives_in", entity("Munich", "place"));
-  rel(aE, "works_at", entity("Acme", "org"));
-  rel(aE, "likes", entity("rock climbing", "topic"));
-  rel(aE, "likes", outdoors);
-  rel(aE, "wants_to_visit", japan);
-  rel(bE, "lives_in", entity("Brooklyn", "place"));
-  rel(bE, "likes", entity("hiking", "topic"));
-  rel(bE, "likes", outdoors);
-  rel(bE, "planning", japan);
-  rel(cE, "lives_in", entity("London", "place"));
-  rel(cE, "works_at", entity("Rise", "org"));
-  rel(cE, "friends_with", aE);
-  rel(bE, "friends_with", aE);
-  rel(cE, "likes", entity("cello", "topic"));
-
-  return [alice, bob, cara].map((m) => ({ name: m.name, code: createPairingCode(m.id) }));
+  return listMembers().map((m) => ({ name: m.name, code: createPairingCode(m.id) }));
 }
 
-// One-shot boot bootstrap for the hosted demo (guarded by HIVE_DEMO). Bakes the
-// provider key + model roles from env, seeds the scenario, and kicks one
-// orchestrator pass so Disclosures/Proactive have content when the link is opened.
+// One-shot boot bootstrap (guarded by HIVE_DEMO). Bakes the provider key + model
+// roles from env, creates the members, and kicks an orchestrator pass once the bees
+// have had time to seed conversations and the pipeline has extracted them.
 export async function bootstrapDemo(): Promise<void> {
   if (!process.env["HIVE_DEMO"]) return;
 
@@ -106,8 +45,9 @@ export async function bootstrapDemo(): Promise<void> {
   const members = await seedDemo();
   console.log(`[hive] demo: ${members.length} members ready (${members.map((m) => `${m.name} ${m.code}`).join(", ")})`);
 
-  // fire-and-forget after boot so the first visit already shows a live nudge/disclosure
+  // Give the bees time to replay conversations and the pipeline to extract them,
+  // then surface a proactive connection/disclosure. The heartbeat keeps it going.
   if (roleConfigured("social")) {
-    setTimeout(() => void runOrchestrator().catch(() => {}), 4000).unref?.();
+    setTimeout(() => void runOrchestrator().catch(() => {}), 75_000).unref?.();
   }
 }

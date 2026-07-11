@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } from "node:fs";
 import { appendJsonl, readJsonl } from "@hive/shared";
 import type { Message } from "@hive/shared/llm";
 import { dataDir } from "./config.js";
@@ -48,6 +48,22 @@ export function appendDisplay(beeId: string, sessionId: string, role: DisplayLin
 }
 export function displayTurns(beeId: string, sessionId: string): DisplayLine[] {
   return readJsonl<DisplayLine>(displayFile(beeId, sessionId));
+}
+
+// The conversation-thread tags this bee has on disk (from display transcripts).
+// Session ids look like `member:<memberId>:<tag>`; we return the trailing tags so
+// the web client can list every thread, not just the ones it created locally.
+export function listSessionTags(beeId: string): string[] {
+  try {
+    const files = readdirSync(join(dataDir(), "sessions", beeId));
+    const tags = files
+      .filter((f) => f.endsWith(".display.jsonl"))
+      .map((f) => f.replace(/\.display\.jsonl$/, "").split(":").pop() ?? "")
+      .filter(Boolean);
+    return [...new Set(tags)];
+  } catch {
+    return [];
+  }
 }
 
 // Delete a conversation thread entirely: the display transcript the web client

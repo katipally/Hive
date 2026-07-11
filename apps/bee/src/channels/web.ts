@@ -11,7 +11,7 @@ import { id } from "@hive/shared";
 import type { ChannelAdapter, InboundMessage, ReplySink } from "./types.js";
 import { Bee } from "../bee.js";
 import { saveConfig, dataDir, type BeeConfig, type BeeInstanceConfig } from "../config.js";
-import { displayTurns, deleteDisplay } from "../sessions.js";
+import { displayTurns, deleteDisplay, listSessionTags } from "../sessions.js";
 
 // Web channel: bee-ui connects over WS. externalId = a client-persisted uid.
 export class WebChannel implements ChannelAdapter {
@@ -69,6 +69,15 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
     webChannels.set(beeId, wc);
     bee.registerAdapter(wc);
   }
+
+  // Demo build: each bee IS one member, so every web visitor to that bee is that
+  // member — we pin the identity server-side (web-<name>) instead of trusting a
+  // random per-browser uid. This is what makes the profile switcher "become" people.
+  const memberUid = (beeId: string): string | undefined => {
+    if (!process.env["BEE_DEMO"]) return undefined;
+    const nm = bees.get(beeId)?.instance.name;
+    return nm ? `web-${nm.toLowerCase()}` : undefined;
+  };
 
   // Spin up a brand-new bee at runtime: mint id+token, persist to config, wire
   // its web channel, and start it. It appears in /api/bees immediately.
@@ -130,16 +139,29 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
   });
   // This web member's own invite code, so the guide can show "send this to link".
   app.get("/api/my-code", async (c) => {
-    const bee = bees.get(c.req.query("bee") ?? "");
+    const beeId = c.req.query("bee") ?? "";
+    const bee = bees.get(beeId);
     if (!bee) return c.json({});
-    return c.json(await bee.webMemberCode(c.req.query("uid") ?? ""));
+    return c.json(await bee.webMemberCode(memberUid(beeId) ?? c.req.query("uid") ?? ""));
+  });
+  // The conversation threads that exist for this bee (so the client lists every
+  // seeded/prior session, not just ones created in this browser).
+  app.get("/api/sessions", (c) => {
+    const beeId = c.req.query("bee") ?? "";
+    if (!bees.get(beeId)) return c.json([]);
+    return c.json(
+      listSessionTags(beeId).map((tag) => ({
+        id: tag,
+        title: tag.replace(/-/g, " ").replace(/\b\w/g, (m) => m.toUpperCase()),
+      })),
+    );
   });
 
   // Server-backed chat history (incl. nudges/polls) for the web client. Reads the
   // member's unified display transcript so proactive messages survive a refresh.
   app.get("/api/history", async (c) => {
     const beeId = c.req.query("bee") ?? "";
-    const uid = c.req.query("uid") ?? "";
+    const uid = memberUid(beeId) ?? c.req.query("uid") ?? "";
     const session = c.req.query("session") || "main";
     const bee = bees.get(beeId);
     if (!bee || !uid) return c.json([]);
@@ -151,7 +173,7 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
   // session + compaction) so the reset is real, not just local.
   app.delete("/api/history", async (c) => {
     const beeId = c.req.query("bee") ?? "";
-    const uid = c.req.query("uid") ?? "";
+    const uid = memberUid(beeId) ?? c.req.query("uid") ?? "";
     const session = c.req.query("session") || "main";
     const bee = bees.get(beeId);
     if (!bee || !uid) return c.json({ ok: false }, 400);
@@ -171,7 +193,7 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
       return;
     }
     const beeId = url.searchParams.get("bee") ?? "";
-    const uid = url.searchParams.get("uid") ?? "";
+    const uid = memberUid(beeId) ?? url.searchParams.get("uid") ?? "";
     const session = url.searchParams.get("session") ?? undefined;
     const wc = webChannels.get(beeId);
     if (!wc || !uid) {

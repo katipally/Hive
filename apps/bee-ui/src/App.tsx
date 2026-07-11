@@ -5,7 +5,7 @@ import { BeeMark } from "./Logo.js";
 import { ThemeToggle, useToast, Thinking, StatusDot, Avatar, ConfirmDialog } from "@hive/ui";
 import { cn } from "./lib/cn.js";
 import { dropdown } from "./lib/motion.js";
-import { useBeeChat, uidFor, DEMO, DEMO_NAMES, demoIdentity, setDemoIdentity } from "./useBeeChat.js";
+import { useBeeChat, uidFor, DEMO } from "./useBeeChat.js";
 import { useVoice } from "./useVoice.js";
 import { VoiceMode } from "./VoiceMode.js";
 import { Settings } from "./Settings.js";
@@ -127,10 +127,25 @@ export function App() {
   const [addingProfile, setAddingProfile] = useState(false);
   useEffect(() => {
     if (!beeId) return;
-    const s = loadSessions(beeId);
-    setSessions(s);
-    const sel = localStorage.getItem(activeKey(beeId)) ?? s[0]!.id;
-    setSessionId(s.some((x) => x.id === sel) ? sel : s[0]!.id);
+    const local = loadSessions(beeId);
+    setSessions(local);
+    const stored = localStorage.getItem(activeKey(beeId));
+    setSessionId(stored && local.some((x) => x.id === stored) ? stored : local[0]!.id);
+    // Merge in the bee's server-side threads (seeded/prior sessions this browser
+    // hasn't created locally) so every conversation shows up, not just local ones.
+    fetch(`${API_BASE}/sessions?bee=${beeId}`)
+      .then((r) => r.json())
+      .then((server: ChatSession[]) => {
+        if (!Array.isArray(server) || !server.length) return;
+        setSessions((cur) => {
+          const extra = cur.filter((s) => s.id !== "main" && !server.some((v) => v.id === s.id));
+          const merged = [...server, ...extra];
+          localStorage.setItem(sessionsKey(beeId), JSON.stringify(merged));
+          return merged;
+        });
+        if (!stored) { setSessionId(server[0]!.id); localStorage.setItem(activeKey(beeId), server[0]!.id); }
+      })
+      .catch(() => {});
   }, [beeId]);
   const saveSessions = (s: ChatSession[]) => { setSessions(s); if (beeId) localStorage.setItem(sessionsKey(beeId), JSON.stringify(s)); };
   const selectSession = (id: string) => { setSessionId(id); if (beeId) localStorage.setItem(activeKey(beeId), id); };
@@ -329,21 +344,6 @@ export function App() {
 
   return (
     <div className="relative z-10 flex h-dvh gap-2 bg-background p-2">
-      {DEMO && (
-        <div className="fixed left-1/2 top-2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-1.5 text-[12px] shadow-lg backdrop-blur">
-          <span className="text-faint">Demo · you are</span>
-          <select
-            value={demoIdentity()}
-            onChange={(e) => setDemoIdentity(e.target.value)}
-            aria-label="Choose who you are"
-            className="cursor-pointer appearance-none rounded-md border border-border bg-background px-2 py-0.5 font-medium text-fg outline-none hover:border-border-heavy"
-          >
-            {DEMO_NAMES.map((n) => (
-              <option key={n} value={n.toLowerCase()}>{n}</option>
-            ))}
-          </select>
-        </div>
-      )}
       {/* Conversation sidebar — one entry per bee, each its own history. */}
       {sidebarOpen ? (
         <aside className="flex w-60 shrink-0 flex-col px-1.5 py-1">
