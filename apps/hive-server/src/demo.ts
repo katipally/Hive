@@ -20,6 +20,7 @@ export async function seedDemo(): Promise<{ name: string; code: string }[]> {
     createMember("Alice", "Europe/Berlin");
     createMember("Bob", "America/New_York");
     createMember("Cara", "Europe/London");
+    createMember("Dana", "America/Los_Angeles");
   }
   return listMembers().map((m) => ({ name: m.name, code: createPairingCode(m.id) }));
 }
