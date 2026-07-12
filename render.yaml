@@ -12,7 +12,7 @@ services:
       - key: HIVE_DEMO
         value: "1"
       - key: HIVE_DEMO_MODEL
-        value: MiniMax-M2
+        value: MiniMax-M3
       - key: HIVE_LLM_DAILY_CAP
         value: "300"
       # set this as a secret in the Render dashboard (never commit it):

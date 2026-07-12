@@ -35,7 +35,7 @@ export async function bootstrapDemo(): Promise<void> {
     putSecret("provider:minimax", key);
     const base = process.env["HIVE_MINIMAX_BASE_URL"];
     if (base) setBaseUrl("minimax", base);
-    const model = process.env["HIVE_DEMO_MODEL"] ?? "MiniMax-M2"; // match render.yaml default
+    const model = process.env["HIVE_DEMO_MODEL"] ?? "MiniMax-M3"; // match render.yaml default
     for (const role of ["chat", "extraction", "social"] as ModelRole[]) {
       setModelRole(role, { provider: "minimax", modelId: model });
     }
