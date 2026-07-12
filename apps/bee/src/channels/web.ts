@@ -96,9 +96,27 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
 
   const app = new Hono();
   app.use("*", cors());
+  // primary = the default "me" bee (first instance). The web UI shows the primary plus the
+  // profiles THIS browser has paired locally, so a fresh browser doesn't list every member's
+  // bee that happens to live on this shared runtime.
   app.get("/api/bees", (c) =>
-    c.json([...bees.values()].map((b) => ({ beeId: b.instance.beeId, name: b.instance.name }))),
+    c.json(
+      [...bees.values()].map((b) => ({
+        beeId: b.instance.beeId,
+        name: b.instance.name,
+        primary: b.instance.beeId === cfg.instances[0]?.beeId,
+      })),
+    ),
   );
+  // Which bee a code's member already has a web identity on (passthrough from the hive), so
+  // pairing the same member from another browser reuses that bee — and its history.
+  app.get("/api/bee-for-code", async (c) => {
+    const code = c.req.query("code") ?? "";
+    const info = await fetch(`${cfg.hiveHttpUrl}/api/member-bee?code=${encodeURIComponent(code)}`)
+      .then((x) => x.json())
+      .catch(() => ({ beeId: null }));
+    return c.json(info as { beeId: string | null });
+  });
   app.post("/api/bees", async (c) => {
     const { name } = await c.req.json<{ name?: string }>().catch(() => ({ name: undefined }));
     const nm = name?.trim() || `bee-${bees.size + 1}`;

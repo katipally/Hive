@@ -113,6 +113,17 @@ export function deleteMember(memberId: string): boolean {
   return true;
 }
 
+// The bee instance a member's web identity is hosted on, if any (earliest = canonical).
+// Used so pairing from a new browser reuses the SAME bee — and thus the same server-side
+// conversation history, keyed by (beeId, memberId) — instead of spinning up a fresh empty
+// bee whose history would be blank.
+export function webBeeForMember(memberId: string): string | null {
+  const r = getDb().db
+    .prepare("SELECT bee_id FROM channel_identities WHERE member_id=? AND channel='web' AND bee_id IS NOT NULL ORDER BY linked_at ASC LIMIT 1")
+    .get(memberId) as { bee_id?: string } | undefined;
+  return r?.bee_id ?? null;
+}
+
 // The channel identities for a member (used to notify their bee on removal).
 export function memberIdentityIds(memberId: string): string[] {
   return (getDb().db.prepare("SELECT id FROM channel_identities WHERE member_id=?").all(memberId) as { id: string }[]).map((r) => r.id);

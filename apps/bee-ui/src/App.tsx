@@ -84,6 +84,7 @@ function MenuItem({ icon, children, onClick, danger, disabled }: {
 interface BeeInfo {
   beeId: string;
   name: string;
+  primary?: boolean; // the default "me" bee; other members' bees are hidden unless paired locally
 }
 
 // Shared channels the operator has set up — surfaced under the profile's Connections.
@@ -260,7 +261,7 @@ export function App() {
       // self-heal a stale selection: if the runtime restarted and beeIds changed, the
       // cached bee_sel points at a bee that no longer exists (chat would sit "offline").
       // Snap to a valid profile instead of getting stuck.
-      setBeeId((cur) => (cur && b.some((x) => x.beeId === cur) ? cur : b[0]?.beeId ?? ""));
+      setBeeId((cur) => (cur && b.some((x) => x.beeId === cur) ? cur : b.find((x) => x.primary)?.beeId ?? b[0]?.beeId ?? ""));
       setMemberNames(Object.fromEntries(b.map((x) => [x.beeId, localStorage.getItem(memberKey(x.beeId)) ?? ""]).filter(([, v]) => v)));
       return b;
     } catch {
@@ -346,44 +347,56 @@ export function App() {
     if (!/^BEE-[A-Z0-9]{4}$/.test(code)) { setCodeErr("Enter a code like BEE-AQ5K."); return; }
     setPairingBusy(true);
     setCodeErr("");
-    let created: BeeInfo | null = null;
+    let createdBeeId: string | null = null; // a bee minted here, to roll back on failure
     try {
-      // 1) create the bee (profile)
-      const bres = await fetch(`${API_BASE}/bees`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "New profile" }),
-      });
-      if (!bres.ok) { setCodeErr(`Couldn't reach the bee runtime (HTTP ${bres.status}). Is it running?`); return; }
-      created = (await bres.json()) as BeeInfo;
-      if (!created?.beeId) { setCodeErr("The bee runtime didn't return a profile. Try again."); return; }
+      // 1) Reuse the member's existing bee if they already have one — their conversation
+      //    lives on that bee (history is keyed by member there), so pairing to it loads the
+      //    real chat instead of a fresh empty one. Only mint a new bee the first time a
+      //    member is paired on the web.
+      const existing = (await fetch(`${API_BASE}/bee-for-code?code=${encodeURIComponent(code)}`)
+        .then((r) => r.json())
+        .catch(() => ({ beeId: null }))) as { beeId: string | null };
+      const known = await loadBees();
+      let beeIdToUse = existing.beeId && known.some((b) => b.beeId === existing.beeId) ? existing.beeId : "";
+      if (!beeIdToUse) {
+        const bres = await fetch(`${API_BASE}/bees`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: "New profile" }),
+        });
+        if (!bres.ok) { setCodeErr(`Couldn't reach the bee runtime (HTTP ${bres.status}). Is it running?`); return; }
+        const created = (await bres.json()) as BeeInfo;
+        if (!created?.beeId) { setCodeErr("The bee runtime didn't return a profile. Try again."); return; }
+        beeIdToUse = created.beeId;
+        createdBeeId = created.beeId;
+      }
 
-      // 2) pair it to the code's member
+      // 2) pair THIS browser's uid on that bee to the code's member
       const res = await fetch(`${API_BASE}/pair`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ bee: created.beeId, uid: uidFor(created.beeId), code }),
+        body: JSON.stringify({ bee: beeIdToUse, uid: uidFor(beeIdToUse), code }),
       });
       const j = (await res.json().catch(() => null)) as { ok?: boolean; name?: string; error?: string } | null;
       if (!res.ok || !j?.ok) {
-        // roll back the bee we just made so no unpaired orphan profile is left behind
-        await fetch(`${API_BASE}/bees/${created.beeId}`, { method: "DELETE" }).catch(() => {});
+        // roll back only a bee we minted here — never delete a member's existing bee
+        if (createdBeeId) await fetch(`${API_BASE}/bees/${createdBeeId}`, { method: "DELETE" }).catch(() => {});
         setCodeErr(j?.error ?? `That code didn't work (HTTP ${res.status}).`);
         return;
       }
 
       // 3) success — name the profile from the member and switch to it
       const name = j.name ?? "friend";
-      localStorage.setItem(memberKey(created.beeId), name);
-      localStorage.setItem(`bee_code_${created.beeId}`, code); // so the code always shows, even if the uid drifts
-      setMemberNames((mm) => ({ ...mm, [created!.beeId]: name }));
+      localStorage.setItem(memberKey(beeIdToUse), name);
+      localStorage.setItem(`bee_code_${beeIdToUse}`, code); // so the code always shows, even if the uid drifts
+      setMemberNames((mm) => ({ ...mm, [beeIdToUse]: name }));
       await loadBees();
-      setBeeId(created.beeId);
+      setBeeId(beeIdToUse);
       setCodeInput("");
       setAddingProfile(false);
       toast(`Linked as ${name}`);
     } catch (e) {
-      if (created?.beeId) await fetch(`${API_BASE}/bees/${created.beeId}`, { method: "DELETE" }).catch(() => {});
+      if (createdBeeId) await fetch(`${API_BASE}/bees/${createdBeeId}`, { method: "DELETE" }).catch(() => {});
       setCodeErr(`Couldn't add the profile: ${(e as Error).message}`);
     } finally {
       setPairingBusy(false);
@@ -466,9 +479,11 @@ export function App() {
                 aria-label="Switch profile"
                 className="w-full min-w-0 cursor-pointer appearance-none rounded-lg border border-border bg-surface py-1.5 pl-2.5 pr-7 text-[13px] text-fg outline-none transition-colors hover:border-border-heavy focus:border-accent/50"
               >
-                {bees.map((b) => (
-                  <option key={b.beeId} value={b.beeId}>{label(b)}</option>
-                ))}
+                {bees
+                  .filter((b) => b.primary || memberNames[b.beeId] || b.beeId === beeId)
+                  .map((b) => (
+                    <option key={b.beeId} value={b.beeId}>{label(b)}</option>
+                  ))}
               </select>
               <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-faint">
                 <MoreHorizontal size={14} className="rotate-90" />

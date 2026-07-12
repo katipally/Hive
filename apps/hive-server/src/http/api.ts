@@ -11,6 +11,7 @@ import {
   unlinkIdentity,
   listIdentities,
   memberForCode,
+  webBeeForMember,
   deleteMember,
 } from "../db/repo.js";
 import { beeOnline, listBees, sendToBee } from "../ws/bee-hub.js";
@@ -179,6 +180,14 @@ export function buildApi(version: string): Hono {
     const memberId = code ? memberForCode(code) : null;
     const linked = memberId ? new Set(listIdentities(memberId).map((ci) => ci.channel)) : new Set<string>();
     return c.json({ web: true, telegram: linked.has("telegram"), discord: linked.has("discord") });
+  });
+  // The bee a code's member already has a web identity on (or null). Lets the web UI reuse
+  // that bee when someone pairs the same member from another browser, so the existing
+  // conversation loads instead of a fresh empty one.
+  app.get("/api/member-bee", (c) => {
+    const code = (c.req.query("code") ?? "").trim().toUpperCase();
+    const memberId = code ? memberForCode(code) : null;
+    return c.json({ beeId: memberId ? webBeeForMember(memberId) : null });
   });
 
   // ---- providers / keys ----
