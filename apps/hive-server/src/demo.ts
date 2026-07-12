@@ -24,12 +24,14 @@ export async function seedDemo(): Promise<{ name: string; code: string }[]> {
   return listMembers().map((m) => ({ name: m.name, code: createPairingCode(m.id) }));
 }
 
-// One-shot boot bootstrap (guarded by HIVE_DEMO). Bakes the provider key + model
-// roles from env, creates the members, and kicks an orchestrator pass once the bees
-// have had time to seed conversations and the pipeline has extracted them.
+// Boot bootstrap. Two independent parts:
+//  1. Bake the provider key + model roles from env whenever MINIMAX_API_KEY is present —
+//     regardless of HIVE_DEMO — so a *non-demo* hosted instance still has a working model
+//     without the plaintext being re-typed in Settings (the ephemeral disk drops it).
+//  2. Replay the canned Alice/Bob/Cara scenario ONLY under HIVE_DEMO. Set HIVE_DEMO=0 to
+//     boot a blank slate (empty graph/members) that still has a working model, then add
+//     data manually.
 export async function bootstrapDemo(): Promise<void> {
-  if (!process.env["HIVE_DEMO"]) return;
-
   const key = process.env["MINIMAX_API_KEY"];
   if (key && !hasSecret("provider:minimax")) {
     putSecret("provider:minimax", key);
@@ -39,14 +41,17 @@ export async function bootstrapDemo(): Promise<void> {
     for (const role of ["chat", "extraction", "social"] as ModelRole[]) {
       setModelRole(role, { provider: "minimax", modelId: model });
     }
-    console.log(`[hive] demo: minimax key baked in, roles → ${model}`);
+    console.log(`[hive] minimax key baked from env, roles → ${model}`);
   }
   // DATA-4: on Render's free/ephemeral disk the encryption key (and thus any secret not
   // re-baked from env) is regenerated each boot, so dashboard-entered API keys don't
-  // survive a restart. The demo re-bakes MINIMAX from env above, so the core flow is fine.
+  // survive a restart. Re-baking MINIMAX from env above keeps the core flow working.
   console.warn("[hive] note: on an ephemeral disk, secrets entered in the dashboard reset on restart — set them via env for persistence.");
   // Retrieval is embedding-free (BM25/FTS5 + graph traversal) — there is no vector RAG
   // path, so no embeddings role is needed.
+
+  // Everything below is the canned demo scenario — skipped when HIVE_DEMO is unset.
+  if (!process.env["HIVE_DEMO"]) return;
 
   const members = await seedDemo();
   console.log(`[hive] demo: ${members.length} members ready (${members.map((m) => `${m.name} ${m.code}`).join(", ")})`);
