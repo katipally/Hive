@@ -26,7 +26,9 @@ export interface ChannelAdapter {
   readonly kind: ChannelKind;
   start(onMessage: (msg: InboundMessage, sink: ReplySink) => void): Promise<void>;
   stop(): Promise<void>;
-  // whole-message send (nudges, non-streaming replies)
-  send(externalId: string, text: string): Promise<void>;
+  // whole-message send (nudges, non-streaming replies). `session` is the web thread the
+  // message belongs to (proactive reach-outs target the active thread, or a new one);
+  // non-web channels have a single thread and ignore it.
+  send(externalId: string, text: string, session?: string): Promise<void>;
   health(): { ok: boolean; detail?: string };
 }

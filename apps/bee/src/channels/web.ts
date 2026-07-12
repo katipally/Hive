@@ -52,10 +52,13 @@ export class WebChannel implements ChannelAdapter {
     });
   }
 
-  async send(externalId: string, text: string): Promise<void> {
+  async send(externalId: string, text: string, session?: string): Promise<void> {
     const set = this.conns.get(externalId);
     if (!set || set.size === 0) throw new Error("web client offline");
-    for (const ws of set) ws.send(JSON.stringify({ type: "nudge", text }));
+    // Broadcast to all of the member's open tabs, carrying the target thread. The tab
+    // viewing that thread renders it inline; other tabs use it as a "your bee reached out"
+    // signal (and refresh their thread list to surface a new one).
+    for (const ws of set) ws.send(JSON.stringify({ type: "nudge", text, session: session ?? "main" }));
   }
 
   health() {
@@ -153,7 +156,9 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
     return c.json(
       listSessionTags(beeId).map((tag) => ({
         id: tag,
-        title: tag.replace(/-/g, " ").replace(/\b\w/g, (m) => m.toUpperCase()),
+        // proactive reach-out threads (created when the bee messages an idle member) get
+        // a friendly name; normal threads prettify their tag.
+        title: tag.startsWith("hive-") ? "From your bee" : tag.replace(/-/g, " ").replace(/\b\w/g, (m) => m.toUpperCase()),
       })),
     );
   });

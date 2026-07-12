@@ -152,6 +152,22 @@ export function App() {
   }, [beeId]);
   const saveSessions = (s: ChatSession[]) => { setSessions(s); if (beeId) localStorage.setItem(sessionsKey(beeId), JSON.stringify(s)); };
   const selectSession = (id: string) => { setSessionId(id); if (beeId) localStorage.setItem(activeKey(beeId), id); };
+  // Re-pull the bee's thread list (used when a proactive reach-out lands in a new thread).
+  const refreshSessions = useCallback(() => {
+    if (!beeId) return;
+    fetch(`${API_BASE}/sessions?bee=${beeId}`)
+      .then((r) => r.json())
+      .then((server: ChatSession[]) => {
+        if (!Array.isArray(server) || !server.length) return;
+        setSessions((cur) => {
+          const extra = cur.filter((s) => s.id !== "main" && !server.some((v) => v.id === s.id));
+          const merged = [...server, ...extra];
+          localStorage.setItem(sessionsKey(beeId), JSON.stringify(merged));
+          return merged;
+        });
+      })
+      .catch(() => {});
+  }, [beeId]);
   function newChat() {
     const id = `s_${Math.random().toString(36).slice(2, 9)}`;
     saveSessions([{ id, title: "New chat" }, ...sessions]);
@@ -230,6 +246,7 @@ export function App() {
       setMemberNames((mm) => ({ ...mm, [beeId]: name }));
     },
     onError: (m) => toast(m, "error"),
+    onReachout: () => { refreshSessions(); toast("Your bee reached out — see “From your bee”"); },
   });
   const voice = useVoice({ send: chat.send, setOnDone: chat.setOnDone });
 

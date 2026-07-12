@@ -22,7 +22,7 @@ function loadMsgs(beeId: string, sessionId: string): Msg[] {
 // All the bee's chat state in one place: the WebSocket, the message log
 // (persisted per bee so a refresh or bee-switch keeps history), and a
 // registerable onDone callback the voice engine uses to speak the reply.
-export function useBeeChat(beeId: string, sessionId: string, opts?: { onPaired?: (name: string) => void; onError?: (msg: string) => void }) {
+export function useBeeChat(beeId: string, sessionId: string, opts?: { onPaired?: (name: string) => void; onError?: (msg: string) => void; onReachout?: (session: string) => void }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [connected, setConnected] = useState(false);
   const [thinking, setThinking] = useState(false);
@@ -58,7 +58,14 @@ export function useBeeChat(beeId: string, sessionId: string, opts?: { onPaired?:
 
     const onMessage = (e: MessageEvent) => {
       live = true; // a live turn started — don't let a late history fetch clobber it
-      const m = JSON.parse(e.data) as { type: string; text: string };
+      const m = JSON.parse(e.data) as { type: string; text: string; session?: string };
+      // A proactive reach-out (nudge/reminder/poll) for a DIFFERENT thread than the one
+      // this tab is viewing: don't render it here — tell the app so it can surface the
+      // thread and notify. The message itself is persisted server-side for when it opens.
+      if (m.type === "nudge" && m.session && m.session !== sessionId) {
+        optsRef.current?.onReachout?.(m.session);
+        return;
+      }
       setMsgs((prev) => {
         if (m.type === "delta") {
           setThinking(false);

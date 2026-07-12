@@ -28,6 +28,7 @@ export class Bee {
   private cache = new Map<string, Linked>(); // key: `${channel}:${externalId}`
   private lastPrompt = new Map<string, number>(); // rate-limit pairing prompts
   private personaCache = new Map<string, { v: string; at: number }>(); // memberId -> persona, short TTL
+  private activeWebSession = new Map<string, { tag: string; at: number }>(); // memberId -> last web thread they used
 
   constructor(
     readonly instance: BeeInstanceConfig,
@@ -186,6 +187,8 @@ export class Bee {
     // off-the-record: reply normally but store nothing (no graph, no disclosure).
     const orMarker = /^\s*(\/private|\/offrecord|🔒)\s*/i;
     const offRecord = orMarker.test(msg.text);
+    // Confirm the command took effect (on every channel), so it's clear it worked.
+    if (offRecord) await sink.notice("🔒 Off the record — I won't save this.");
     const forChat = offRecord ? { ...msg, text: msg.text.replace(orMarker, "") } : msg;
     await this.chat(forChat, sink, linked, offRecord);
   }
@@ -304,6 +307,9 @@ export class Bee {
     // each carries a sessionTag so it gets its own thread. Memory is still unified
     // at the hive graph level; only the conversation transcript is per-session.
     const sessionId = `member:${linked.memberId}:${msg.sessionTag ?? "main"}`;
+    // Remember which web thread the member is actively using, so a proactive reach-out
+    // lands in the conversation they're in (and starts a fresh one when they're idle).
+    if (msg.channel === "web") this.activeWebSession.set(linked.memberId, { tag: msg.sessionTag ?? "main", at: Date.now() });
 
     // record + ingest the user turn — unless it's off the record. Off-record means
     // store NOTHING: not the session .jsonl (which feeds the cloud summarizer), not the
@@ -451,11 +457,31 @@ export class Bee {
     return memberId ? `member:${memberId}:${tag}` : null;
   }
 
+  // Which thread a proactive message should land in: the member's active web thread if
+  // they've interacted recently, otherwise a brand-new thread (so an out-of-the-blue
+  // reach-out starts its own conversation, the way a real "it texted me" would).
+  // Non-web channels have a single thread ("main").
+  private static readonly ACTIVE_SESSION_MS = Number(process.env["HIVE_ACTIVE_SESSION_MS"] ?? 3 * 60_000);
+  private targetSessionTag(channel: ChannelKind, memberId: string | null): string {
+    if (channel !== "web" || !memberId) return "main";
+    const active = this.activeWebSession.get(memberId);
+    if (active && Date.now() - active.at < Bee.ACTIVE_SESSION_MS) return active.tag;
+    return `hive-${Date.now().toString(36)}`;
+  }
+
+  private async memberIdFor(channel: ChannelKind, externalId: string): Promise<string | null> {
+    const cached = this.cache.get(this.key(channel, externalId));
+    if (cached) return cached.memberId;
+    const check = await this.link.identityCheck(channel, externalId).catch(() => null);
+    return check?.memberId ?? null;
+  }
+
   private async deliverNudge(nudgeId: string, channel: ChannelKind, externalId: string, text: string): Promise<void> {
-    // Persist to the display transcript FIRST (CH-3), so a web nudge survives a closed
-    // tab / refresh even when live delivery fails — the old order dropped it entirely.
-    const sid = await this.sessionForMember(channel, externalId);
-    if (sid) appendDisplay(this.instance.beeId, sid, "nudge", text);
+    const memberId = await this.memberIdFor(channel, externalId);
+    const tag = this.targetSessionTag(channel, memberId);
+    // Persist to the target thread FIRST (CH-3/CH-4), so the reach-out survives a closed
+    // tab / refresh and shows up in the right conversation even if live delivery fails.
+    if (memberId) appendDisplay(this.instance.beeId, `member:${memberId}:${tag}`, "nudge", text);
 
     const adapter = this.adapters.get(channel);
     if (!adapter) {
@@ -463,7 +489,7 @@ export class Bee {
       return;
     }
     try {
-      await adapter.send(externalId, text);
+      await adapter.send(externalId, text, tag);
       this.link.nudgeResult(nudgeId, "delivered");
     } catch (e) {
       this.link.nudgeResult(nudgeId, "failed", (e as Error).message);
