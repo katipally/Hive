@@ -162,12 +162,8 @@ export function useBeeChat(beeId: string, sessionId: string, opts?: { onPaired?:
   return { msgs, connected, thinking, send, setOnDone, clear };
 }
 
-// Each bee instance is a distinct person: give it its own web identity so
-// bee-1 pairs to one member+code and bee-2 to another, independently. (In the
-// hosted demo the bee pins the identity server-side per profile, so this uid is
-// only a fallback for the normal single-bee runtime.)
-export const DEMO: boolean = (import.meta.env as Record<string, string | undefined>).VITE_DEMO === "1";
-
+// Each bee instance (profile) is a distinct person: give it its own browser-persisted
+// web identity so profile-1 pairs to one member+code and profile-2 to another.
 export function uidFor(beeId: string): string {
   const k = `bee_uid_${beeId}`;
   let v = localStorage.getItem(k);

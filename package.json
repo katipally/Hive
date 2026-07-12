@@ -10,7 +10,6 @@
     "dev:server": "concurrently -n hive,bee -c cyan,yellow \"pnpm -C apps/hive-server dev\" \"pnpm -C apps/bee dev\"",
     "build": "pnpm -C packages/shared build && pnpm -C apps/hive-dash build && pnpm -C apps/bee-ui build",
     "typecheck": "pnpm -r typecheck",
-    "seed": "pnpm -C apps/hive-server seed",
     "smoke": "bash scripts/smoke.sh"
   },
   "devDependencies": {

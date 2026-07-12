@@ -1,7 +1,6 @@
 import { loadConfig } from "./config.js";
 import { Bee } from "./bee.js";
 import { startWebServer } from "./channels/web.js";
-import { demoAutoPair } from "./demo.js";
 
 // Keep the runtime alive even if a channel adapter (bad token, dropped socket)
 // throws — one broken channel must never take down everyone's bee.
@@ -18,9 +17,6 @@ for (const inst of cfg.instances) {
 }
 
 startWebServer(cfg, bees);
-
-// hosted demo only: link the seeded members to this bee so /chat works code-free
-void demoAutoPair(bees, cfg);
 
 console.log(
   `[bee] runtime up on http://localhost:${cfg.webPort} — instances: ${cfg.instances

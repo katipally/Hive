@@ -1,6 +1,8 @@
-# Render Blueprint — free, no credit card. Docker web service, ephemeral disk
-# (the demo seeds itself on every boot, so no persistent disk is needed).
-# Note: the free plan sleeps after ~15 min idle and cold-starts on the next hit.
+# Render Blueprint — free, no credit card. Docker web service. The hive boots empty; an
+# operator creates members and people pair with a code. The model key is baked from
+# MINIMAX_API_KEY at boot, so the app comes up with a working model.
+# Note: the free plan sleeps after ~15 min idle unless kept warm (e.g. a cron ping), and
+# the ephemeral disk means data does not survive a full restart.
 services:
   - type: web
     name: hive-demo
@@ -9,9 +11,7 @@ services:
     plan: free
     autoDeploy: false
     envVars:
-      - key: HIVE_DEMO
-        value: "1"
-      - key: HIVE_DEMO_MODEL
+      - key: HIVE_MODEL
         value: MiniMax-M3
       - key: HIVE_LLM_DAILY_CAP
         value: "300"

@@ -12,7 +12,8 @@ import { attachDashHub } from "./ws/dash-hub.js";
 import { registerPipeline } from "./pipeline/register.js";
 import { startHeartbeat } from "./proactive/heartbeat.js";
 import { startReminderLoop } from "./proactive/reminders.js";
-import { bootstrapDemo } from "./demo.js";
+import { bakeProviderKeyFromEnv } from "./bootstrap.js";
+import { roleConfigured } from "./settings/settings.js";
 
 // Last-resort backstops so one poison message / rejected promise logs instead of
 // tearing the process down (or silently killing a background loop).
@@ -25,6 +26,7 @@ const DATA_DIR = process.env["HIVE_DATA_DIR"] ?? join(process.cwd(), "hive-data"
 
 openDb(DATA_DIR);
 initKeystore(DATA_DIR);
+bakeProviderKeyFromEnv(); // configure the model from env if a key is provided
 registerPipeline();
 
 // clean up any duplicate web identities left by the old per-browser-id scheme
@@ -57,12 +59,9 @@ startReminderLoop();
 console.log(`[hive] listening on http://localhost:${PORT}  (ws: /ws/bee, /ws/dash)`);
 console.log(`[hive] data dir: ${DATA_DIR}`);
 
-// Surface silent-absence: a missing key means a whole feature quietly never fires,
-// with no error anywhere. Warn loudly at boot instead.
-if (process.env["HIVE_DEMO"] && !process.env["MINIMAX_API_KEY"])
-  console.warn("[hive] ⚠ MINIMAX_API_KEY not set — the 'social' role stays unconfigured, so proactive nudges/polls will NEVER fire.");
+// Surface silent-absence: with no model configured, extraction/proactive/polls quietly
+// never fire. Warn loudly at boot so it's not a mystery.
+if (!roleConfigured("chat"))
+  console.warn("[hive] ⚠ no model configured — set a provider key in Settings (or MINIMAX_API_KEY via env), or chat/extraction won't work.");
 if (!process.env["EXA_API_KEY"])
   console.log("[hive] web search: using the keyless provider (DuckDuckGo). Set EXA_API_KEY for higher-quality results.");
-
-// hosted demo only (HIVE_DEMO): bake key/roles, seed the scenario, kick orchestrator
-void bootstrapDemo().catch((e) => console.error("[hive] demo bootstrap failed:", e));

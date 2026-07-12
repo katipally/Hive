@@ -6,7 +6,7 @@ import { ThemeToggle, useToast, Thinking, StatusDot, Avatar, ConfirmDialog, Dial
 import { cn } from "./lib/cn.js";
 import { Markdown } from "./lib/markdown.js";
 import { dropdown } from "./lib/motion.js";
-import { useBeeChat, uidFor, DEMO } from "./useBeeChat.js";
+import { useBeeChat, uidFor } from "./useBeeChat.js";
 import { useVoice } from "./useVoice.js";
 import { VoiceMode } from "./VoiceMode.js";
 import { Settings } from "./Settings.js";
@@ -293,20 +293,18 @@ export function App() {
     if (!beeId) return;
     localStorage.setItem("bee_sel", beeId);
     setPairedName(localStorage.getItem(memberKey(beeId)));
-    // Demo: the bee pre-links web-<name>, so discover who we are from the server
-    // instead of waiting for a pairing handshake — /chat opens already "as Alice".
-    if (DEMO) {
-      fetch(`${API_BASE}/my-code?bee=${beeId}&uid=${uidFor(beeId)}`)
-        .then((r) => r.json())
-        .then((r: { name?: string; code?: string }) => {
-          if (r?.code) localStorage.setItem(`bee_code_${beeId}`, r.code);
-          if (!r?.name) return;
-          localStorage.setItem(memberKey(beeId), r.name);
-          setPairedName(r.name);
-          setMemberNames((mm) => ({ ...mm, [beeId]: r.name as string }));
-        })
-        .catch(() => {});
-    }
+    // Resolve who this profile is paired to from the server, so its member name + code
+    // show even after a reload or a cleared cache. An unpaired profile just stays unnamed.
+    fetch(`${API_BASE}/my-code?bee=${beeId}&uid=${uidFor(beeId)}`)
+      .then((r) => r.json())
+      .then((r: { name?: string; code?: string }) => {
+        if (r?.code) localStorage.setItem(`bee_code_${beeId}`, r.code);
+        if (!r?.name) return;
+        localStorage.setItem(memberKey(beeId), r.name);
+        setPairedName(r.name);
+        setMemberNames((mm) => ({ ...mm, [beeId]: r.name as string }));
+      })
+      .catch(() => {});
   }, [beeId]);
 
   useEffect(() => {

@@ -74,19 +74,6 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
     bee.registerAdapter(wc);
   }
 
-  // Demo build: each bee IS one member, so every web visitor to that bee is that
-  // member — we pin the identity server-side (web-<name>) instead of trusting a
-  // random per-browser uid. This is what makes the profile switcher "become" people.
-  const memberUid = (beeId: string): string | undefined => {
-    if (!process.env["BEE_DEMO"]) return undefined;
-    const nm = bees.get(beeId)?.instance.name;
-    // Only pin the seeded demo personas (Alice/Bob/…). A profile the user added at
-    // runtime is named "New profile" and was paired with the browser's own uid, so
-    // pinning "web-new profile" would resolve to nothing — fall back to the real uid.
-    if (!nm || nm === "New profile") return undefined;
-    return `web-${nm.toLowerCase()}`;
-  };
-
   // Spin up a brand-new bee at runtime: mint id+token, persist to config, wire
   // its web channel, and start it. It appears in /api/bees immediately.
   function addBee(name: string): { beeId: string; name: string } {
@@ -150,7 +137,7 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
     const beeId = c.req.query("bee") ?? "";
     const bee = bees.get(beeId);
     if (!bee) return c.json({});
-    return c.json(await bee.webMemberCode(memberUid(beeId) ?? c.req.query("uid") ?? ""));
+    return c.json(await bee.webMemberCode(c.req.query("uid") ?? ""));
   });
   // Link a web profile to a member by invite code (the "+ add profile" flow). Returns
   // the member name so the UI can name the profile; errors surface inline.
@@ -169,7 +156,7 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
     const bee = bees.get(beeId);
     const fallback = { web: true, telegram: false, discord: false };
     if (!bee) return c.json(fallback);
-    const { code } = (await bee.webMemberCode(memberUid(beeId) ?? c.req.query("uid") ?? "")) as { code?: string };
+    const { code } = (await bee.webMemberCode(c.req.query("uid") ?? "")) as { code?: string };
     if (!code) return c.json(fallback);
     const info = await fetch(`${cfg.hiveHttpUrl}/api/member-channels?code=${encodeURIComponent(code)}`)
       .then((x) => x.json())
@@ -195,7 +182,7 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
   // member's unified display transcript so proactive messages survive a refresh.
   app.get("/api/history", async (c) => {
     const beeId = c.req.query("bee") ?? "";
-    const uid = memberUid(beeId) ?? c.req.query("uid") ?? "";
+    const uid = c.req.query("uid") ?? "";
     const session = c.req.query("session") || "main";
     const bee = bees.get(beeId);
     if (!bee || !uid) return c.json([]);
@@ -207,7 +194,7 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
   // session + compaction) so the reset is real, not just local.
   app.delete("/api/history", async (c) => {
     const beeId = c.req.query("bee") ?? "";
-    const uid = memberUid(beeId) ?? c.req.query("uid") ?? "";
+    const uid = c.req.query("uid") ?? "";
     const session = c.req.query("session") || "main";
     const bee = bees.get(beeId);
     if (!bee || !uid) return c.json({ ok: false }, 400);
@@ -227,7 +214,7 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
       return;
     }
     const beeId = url.searchParams.get("bee") ?? "";
-    const uid = memberUid(beeId) ?? url.searchParams.get("uid") ?? "";
+    const uid = url.searchParams.get("uid") ?? "";
     const session = url.searchParams.get("session") ?? undefined;
     const wc = webChannels.get(beeId);
     if (!wc || !uid) {
