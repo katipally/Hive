@@ -45,8 +45,8 @@ export const PROVIDERS: Record<ProviderId, ProviderSpec> = {
 export const PROVIDER_IDS = Object.keys(PROVIDERS) as ProviderId[];
 
 // MiniMax has no reliable public model-list endpoint; keep a static fallback. M3 leads
-// to match the hosted demo default (render.yaml / demo.ts), so the fallback picks the
-// same model the demo is configured for.
+// to match the hosted default (HIVE_MODEL in render.yaml), so the fallback picks the
+// same model the hosted instance is configured for.
 export const MINIMAX_FALLBACK_MODELS = [
   "MiniMax-M3",
   "MiniMax-M2",

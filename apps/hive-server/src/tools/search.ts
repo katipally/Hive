@@ -238,7 +238,7 @@ function firstLine(s: string): string {
 
 // Block loopback / private / link-local / cloud-metadata targets so the reader can't be
 // pointed at internal services (SSRF). Best-effort on the literal host — DNS rebinding is
-// out of scope for a demo, but the obvious internal addresses are refused.
+// out of scope here, but the obvious internal addresses are refused.
 function isPrivateHost(host: string): boolean {
   const h = host.toLowerCase().replace(/^\[|\]$/g, "");
   if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local")) return true;

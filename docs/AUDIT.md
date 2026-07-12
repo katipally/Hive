@@ -39,13 +39,17 @@ tester, not adversarial).
 ## Summary
 
 - **11 Critical · 16 High · 21 Medium · 14 Low · 7 verified-OK**
-- The demo is genuinely wired (real pipeline, no hand-inserted graph), and the flagship moves (proactive
+- The pipeline is genuinely wired (real pipeline, no hand-inserted graph), and the flagship moves (proactive
   nudges, disclosure gating, anonymous polls) are Jason Yuan's Hivemind concept, independently built. The
-  dangerous items are **not** magic numbers — they're a **fully open public API**, a **leak in the
-  disclosure gate** (the one true differentiator), **silent empty replies**, and a proactive/poll engine
-  that **duplicates, mis-attributes, and loops on cost**.
-- **Calibration:** none of these are fatal to a laptop-only demo; several are fatal the moment it's a
-  hosted URL or a real user.
+  worst items the audit found were **not** magic numbers — they were a **leak in the disclosure gate** (the
+  one true differentiator), **silent empty replies**, and a proactive/poll engine that **duplicated,
+  mis-attributed, and looped on cost**. **Those are now fixed** (see the Remediation pass above and the
+  ticked items below): compose runs on redacted text only, the memory endpoint is behind the bee token,
+  replies never come back empty, and the poll engine has an anonymity floor, terminal states, and a
+  re-entrancy guard. The **one intentionally-open item that remains** is the admin API / dashboard WS auth
+  (SEC-1/3/4), kept minimal by the operator's decision — hosted for one tester, not adversarial.
+- **Calibration:** none of these were fatal to a laptop-only instance; the remaining SEC items matter the
+  moment the URL is treated as adversarial, which is out of the current documented scope.
 - **Live-verified working:** emoji end-to-end (16-emoji reply, zero mojibake), clean single-response tool
   use, markdown on web, `/me`, anonymized poll creation, contradiction detection on the graph, FTS recall.
 
@@ -73,7 +77,7 @@ tester, not adversarial).
   *Fix:* operator secret/session on every non-bee route; scope CORS to the dashboard origin; bind internal
   servers to `127.0.0.1`, expose only via Caddy with auth.
 
-- [ ] **SEC-2 · CRITICAL — A live bot token + bee auth tokens are committed to git.**
+- [x] **SEC-2 · CRITICAL — A live bot token + bee auth tokens are committed to git.**
   `apps/bee/bee-data/bee.json` (tracked despite `.gitignore` — committed before the rule) + `outbox/*.json`.
   *Fix:* revoke the token now, `git rm --cached apps/bee/bee-data/`, purge from history, regenerate bee tokens.
 
@@ -109,13 +113,13 @@ tester, not adversarial).
 > why these are the most important findings in the report: the gate is judged on a paraphrase and then
 > bypassed on the outgoing text.
 
-- [ ] **PRV-1 · CRITICAL — Partial-disclosure redaction is defeated at compose time.**
+- [x] **PRV-1 · CRITICAL — Partial-disclosure redaction is defeated at compose time.**
   `proactive/nudges.ts:117-119` → `prompts/proactive.ts:41-46` (raw `cand.reason` passed).
   *Fails:* compose gets the redacted `verdict.disclosed` **and** the raw unredacted `cand.reason`
   ("Why you're reaching out: …"). On `partial`, the compose LLM can re-emit the withheld fact. Every
   cross-member nudge. *Fix:* compose from **only** the disclosed string; never pass the raw reason past the gate.
 
-- [ ] **PRV-2 · CRITICAL — Direct memory endpoint bypasses the disclosure gate.**
+- [x] **PRV-2 · CRITICAL — Direct memory endpoint bypasses the disclosure gate.**
   `http/api.ts:290` `GET /api/members/:id/memories` (unauth, any id) · `agent-tools.ts:6-10` trust-boundary claim.
   *Fails:* the gate lives only in `buildContext`. This endpoint (and the `my_memories` tool) return raw,
   ungated memories for any member id, no caller binding. *Fix:* bind to the authed member; route cross-member
@@ -126,7 +130,7 @@ tester, not adversarial).
   `sourceMemoryIds:["orchestrator"]`. *Fix:* filter briefs by privacy prefs before the call; carry real
   source-memory ids into the disclosure record.
 
-- [ ] **PRV-4 · HIGH — `/private` "off the record" is persisted locally + sent to the cloud summarizer.**
+- [x] **PRV-4 · HIGH — `/private` "off the record" is persisted locally + sent to the cloud summarizer.**
   `bee.ts:247` &amp; `:352` `appendSession` runs unconditionally; `offRecord` only skips display + graph.
   *Fails:* off-record turns hit the on-disk `.jsonl`, become history, and when the thread grows are fed to
   `summarize()` → cloud LLM → `compact.json`. The `/help` promise is false. *Fix:* gate `appendSession` on
@@ -143,27 +147,27 @@ tester, not adversarial).
 > The scariest class for a live demo: the bee says *nothing* and nobody sees an error. All reachable with
 > MiniMax under load (which you already hit — 429/529).
 
-- [ ] **ERR-1 · CRITICAL — Agent-loop `maxTurns` exhaustion → empty reply on every channel.**
+- [x] **ERR-1 · CRITICAL — Agent-loop `maxTurns` exhaustion → empty reply on every channel.**
   `agent/loop.ts:67` yields `turn_end,text:""`; narration-suppression already wiped `curTurn` → `done("")`.
   *Fails:* a 6-turn tool loop exits empty → web spinner vanishes with nothing; Telegram/Discord send `""`
   (rejected, swallowed) → silence. *Fix:* fall back to the last non-empty turn or a "let me get back to you";
   never `done("")`.
 
-- [ ] **ERR-2 · CRITICAL — Mid-stream LLM errors are swallowed (in-band SSE `error`).**
+- [x] **ERR-2 · CRITICAL — Mid-stream LLM errors are swallowed (in-band SSE `error`).**
   `http/api.ts:235-237` emits `{type:"error"}` inside a 200 stream; `loop.ts:34-43` ignores it;
   `chatViaHive` never throws. *Fails:* a provider outage mid-generation → empty/partial reply, honest
   fallback never fires. *Fix:* handle the `error` stream event in the loop; surface as thrown error / notice.
 
-- [ ] **ERR-3 · HIGH — Unguarded identity/pair calls → unhandled rejection + dropped message when hive offline.**
+- [x] **ERR-3 · HIGH — Unguarded identity/pair calls → unhandled rejection + dropped message when hive offline.**
   `bee.ts:125` `identityCheck`, `:147` `pair` (no try/catch); invoked fire-and-forget. *Fix:* wrap the
   identity/pair path; on hive-offline, tell the sender to retry.
 
-- [ ] **ERR-4 · MEDIUM — Hive WS handler: unguarded `ingest`/`pair` + no `unhandledRejection` handler → poison message.**
+- [x] **ERR-4 · MEDIUM — Hive WS handler: unguarded `ingest`/`pair` + no `unhandledRejection` handler → poison message.**
   `ws/bee-hub.ts:104-130` (only `context.request` wrapped); hive-server has no global rejection handler.
   *Fails:* a throwing `ingest.turn` sends no `ingest.ack` → turn stays in `pendingTurns`, resent every
   reconnect forever. *Fix:* try/catch every WS case, always respond, add a global rejection handler.
 
-- [ ] **ERR-5 · HIGH — One bad timezone kills the whole heartbeat tick.**
+- [x] **ERR-5 · HIGH — One bad timezone kills the whole heartbeat tick.**
   `nudges.ts:205` `toLocaleTimeString(..,{timeZone})` throws `RangeError` on bad IANA; called at
   `heartbeat.ts:75` outside the per-member try. *Fix:* validate timezone on write; wrap `inQuietHours`;
   default UTC on parse failure.
@@ -176,7 +180,7 @@ tester, not adversarial).
 > bugs — all traceable to root causes #1 and #2 in the Summary (status-lag rate-limits, and fire-and-forget
 > async escaping the tick's re-entrancy guard).
 
-- [ ] **PROA-1 · CRITICAL — Queued nudges re-delivered every tick until the bee acks → spam.**
+- [x] **PROA-1 · CRITICAL — Queued nudges re-delivered every tick until the bee acks → spam.**
   `nudges.ts:161-193` (no status change on success) + `:196-200` `deliverQueued` re-pushes every 15 min.
   *Fix:* mark `sent` optimistically on push (reconcile on ack/failure); don't re-push un-acked within a window.
 
@@ -184,15 +188,15 @@ tester, not adversarial).
   `polling/polls.ts:107-116` (next user turn, zero content matching). *Fix:* require an explicit reply
   affordance (or classify relevance) before capturing an answer.
 
-- [ ] **PROA-3 · CRITICAL — Poll synthesizes with a single answer → anonymity broken.**
+- [x] **PROA-3 · CRITICAL — Poll synthesizes with a single answer → anonymity broken.**
   `polls.ts:119-143` (no minimum-respondent floor); `closeDuePolls` force-synthesizes at deadline with 0–1.
   *Fix:* require ≥3 answers to synthesize; otherwise expire quietly.
 
-- [ ] **PROA-4 · CRITICAL — Stuck poll re-synthesizes forever → unbounded LLM cost.**
+- [x] **PROA-4 · CRITICAL — Stuck poll re-synthesizes forever → unbounded LLM cost.**
   `polls.ts:136-142` sets status back to `collecting` but never touches `closesAt`; `store.ts:106-112`
   returns it every tick. *Fix:* add a terminal `expired/failed` status + retry cap.
 
-- [ ] **PROA-5 · CRITICAL — Re-entrant synthesis → double delivery to initiator.**
+- [x] **PROA-5 · CRITICAL — Re-entrant synthesis → double delivery to initiator.**
   `polls.ts:121` guard rejects only `done/cancelled`, not `synthesizing`; manual endpoint + new answer +
   overlapping tick race. *Fix:* guard against `synthesizing`; make status-check + call atomic.
 
@@ -200,11 +204,11 @@ tester, not adversarial).
   `store.ts:82-96`; implications + errands + both intro directions propose in one drain, none sent yet.
   *Fix:* count `queued`+`proposed` in cooldown/dedup; dedup at proposal time.
 
-- [ ] **PROA-7 · HIGH — Polls bypass proactivity=off AND quiet hours (ungoverned channel).**
+- [x] **PROA-7 · HIGH — Polls bypass proactivity=off AND quiet hours (ungoverned channel).**
   `polls.ts:51-88` filters only `optOutOfPolling` + reachability. *Fix:* route poll asks through the same
   governance as nudges (mute, quiet hours, cooldown).
 
-- [ ] **PROA-8 · HIGH — Approve endpoint has no status guard → re-deliver already-sent nudges.**
+- [x] **PROA-8 · HIGH — Approve endpoint has no status guard → re-deliver already-sent nudges.**
   `http/api.ts:362-364` unconditionally re-queues + `scheduleDelivery` for any id/status.
   *Fix:* only allow approve when current status is `proposed`.
 
@@ -212,7 +216,7 @@ tester, not adversarial).
   `api.ts:334-348` (no `hasOpenPoll` guard) · `store.ts:80-87` returns only the oldest ask.
   *Fix:* one collecting poll per member at a time, or match answers to the most-recent ask.
 
-- [ ] **PROA-10 · HIGH — `lastOrchestrator` is in-memory → orchestrator + poll fire on every restart.**
+- [x] **PROA-10 · HIGH — `lastOrchestrator` is in-memory → orchestrator + poll fire on every restart.**
   `heartbeat.ts:15,66` resets to 0 on boot (unlike persisted `lastHeartbeatAt`). *Fix:* persist it in settings/DB.
 
 - [ ] **PROA-11 · MEDIUM — Two-sided intro can be asymmetric with mismatched text.**
@@ -241,45 +245,45 @@ tester, not adversarial).
 
 Content is identical (shared `bee.ts`), but rendering + delivery diverge.
 
-- [ ] **CH-1 · HIGH — Long replies silently fail on Telegram (4096) and Discord (2000).**
+- [x] **CH-1 · HIGH — Long replies silently fail on Telegram (4096) and Discord (2000).**
   `channels/telegram.ts:63`, `discord.ts:22/53` (one send, no chunking; Discord error `.catch(()=>{})`).
   Hits `/constitution`, `/me`, long answers. *Fix:* chunk outgoing messages per channel limit.
 
-- [ ] **CH-2 · HIGH — Markdown renders only on web; raw `**` leaks to Telegram, links differ on Discord.**
+- [x] **CH-2 · HIGH — Markdown renders only on web; raw `**` leaks to Telegram, links differ on Discord.**
   `bee-ui/lib/markdown.tsx` (web only); Telegram no `parse_mode`; Discord renders `**` but not
   `[text](url)`/bullets the same. *Fix:* per-channel formatter (Telegram MarkdownV2/HTML with escaping, or strip).
 
-- [ ] **CH-3 · HIGH — Web nudge dropped (not queued) when the tab is closed.**
+- [x] **CH-3 · HIGH — Web nudge dropped (not queued) when the tab is closed.**
   `channels/web.ts:55-58` throws "offline"; `bee.ts:379-393` persists only *after* a successful send.
   *Live-observed:* poll to offline vicky stuck `0/1`. *Fix:* persist the nudge to the display transcript
   regardless of live delivery.
 
-- [ ] **CH-4 · MEDIUM — Nudge display append always targets the "main" thread.**
+- [x] **CH-4 · MEDIUM — Nudge display append always targets the "main" thread.**
   `bee.ts:389` `sessionForMember(...)` defaults `tag="main"`. *Fix:* target the active session.
 
-- [ ] **CH-5 · MEDIUM — Voice mode speaks raw markdown and can't be interrupted.**
+- [x] **CH-5 · MEDIUM — Voice mode speaks raw markdown and can't be interrupted.**
   `bee-ui/useVoice.ts:87-97` (no markdown/URL stripping; recognition stops during synthesis, resumes on `onend`).
   *Fix:* strip markdown before TTS; keep recognition warm for barge-in.
 
-- [ ] **CH-6 · LOW — No typing/thinking indicator on Telegram/Discord.**
+- [x] **CH-6 · LOW — No typing/thinking indicator on Telegram/Discord.**
   `delta()` is a no-op on non-web channels → those channels feel frozen. *Fix:* send a typing action.
 
 ---
 
 ## 06 · Data model, dead code &amp; state
 
-- [ ] **DATA-1 · HIGH — Memory-level supersession unimplemented → contradictory memories surface.**
+- [x] **DATA-1 · HIGH — Memory-level supersession unimplemented → contradictory memories surface.**
   `schema.sql:90` `superseded_by` only ever set to NULL; graph edges get invalidated, raw memory texts never do.
   *Live-observed:* `/me` returned "relocated Austin→Denver" AND "lives in Austin" AND "settling into New York"
   at once. *Fix:* supersede/soft-delete contradicted memories when their functional edge is invalidated.
 
-- [ ] **DATA-2 · HIGH — Critical state is in-memory → caps ineffective on Render, can't horizontally scale.**
+- [x] **DATA-2 · HIGH — Critical state is in-memory → caps ineffective on Render, can't horizontally scale.**
   LLM day-cap (`call.ts:10`), Exa cap (`search.ts:20`), `lastOrchestrator`, `lastDigest`, `pendingUndo`,
   extraction idle timers, `claimedChannels`. Render cold-starts every ~15 min → the 300/day + 50/day caps
   reset to 0 constantly. Two instances would double-nudge/double-cap. *Fix:* move caps + gates to the DB;
   idempotent cross-process delivery.
 
-- [ ] **DATA-3 · MEDIUM — Embeddings/vector RAG entirely dead server-side — and a comment oversells it.**
+- [x] **DATA-3 · MEDIUM — Embeddings/vector RAG entirely dead server-side — and a comment oversells it.**
   `embed()` never called by hive-server; no vec table; `dim`/`supportsEmbeddings` decorative; `demo.ts:44-46`
   comment claims "one dashboard click away" (no code path). *Fix:* delete the dead plumbing + the comment.
 
@@ -363,17 +367,18 @@ triangulating across them, proactively connecting/nudging — "narrator, not pro
 |---|---|---|
 | Private 1:1 with many people | ✓ Have | Bees per member, real |
 | Triangulate across conversations | ✓ Have | Graph + orchestrator + connection-mining |
-| "What do people really think about X?" | ◐ Have, buggy | ask_network works; anonymity floor + answer-capture bugs (§04) |
-| Context + care (privacy) | ◐ Ahead but leaks | Real gate — but PRV-1/PRV-2 leak it. Fix these → genuinely ahead of Hivemind |
-| Proactively initiate / connect strangers | ◐ Have, buggy | Works live; duplication/governance bugs (§04) |
-| Lives where people already are (X DMs) | ✗ Missing | Web/Telegram/Discord; no X. Telegram is your closest "it texted me" channel |
-| Talks to *real* humans at scale | ✗ Demo-only | 2–3 seeded members; can't horizontally scale (DATA-2) |
+| "What do people really think about X?" | ✓ Have | ask_network works; anonymity floor + terminal states now in (§04 fixed) |
+| Context + care (privacy) | ✓ Ahead | Real gate, and PRV-1/PRV-2 are now closed — compose runs on redacted text, memory endpoint tokened. Genuinely ahead of Hivemind here |
+| Proactively initiate / connect strangers | ✓ Have | Works live; the duplication/governance bugs (§04) are fixed |
+| Lives where people already are (X DMs) | ✗ Missing | Web/Telegram/Discord; no X. Telegram is the closest "it texted me" channel |
+| Talks to *real* humans at scale | ◐ Partial | Real members + pairing; single-instance (DATA-2 caps now persisted, but no horizontal scale) |
 | "Narrator, not protagonist" restraint | ◐ Too chatty | Bee over-narrates/asks follow-ups; tune toward quieter, higher-signal |
 | Real-world errands (the Riesling hunt) | ◐ Partial | web_lookup exists; needs EXA key + relevance fixes (QUAL-1) |
 
 **Verdict:** conceptually strikingly close and *ahead on privacy* — the differentiator is real code, not a
-manifesto. The gap is (a) fix the disclosure leak so the moat holds, (b) live where real people are, and
-(c) the restraint/quality of a "social intelligence" vs a chatty assistant.
+manifesto, and the disclosure leak that once undercut it is now closed so the moat holds. The remaining gap
+is (a) live where real people already are (X DMs), and (b) the restraint/quality of a "social intelligence"
+vs a chatty assistant.
 
 ---
 

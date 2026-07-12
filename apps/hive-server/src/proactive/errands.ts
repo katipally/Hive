@@ -7,7 +7,7 @@ import { logActivity } from "../activity.js";
 // Proactive errands: when a member expresses a want the hive could go find, it searches
 // the web unprompted and — if it finds a lead — reaches out through the SAME nudge
 // pipeline (cooldown/dedup/delivery). About-self, so no disclosure gate is involved.
-// Search is keyless (no API key needed), so errands actually run in the demo.
+// Search is keyless (no API key needed), so errands actually run out of the box.
 //
 // Cheap keyword gate first (no LLM, no search) so ordinary chatter costs nothing:
 const WANT_RE =

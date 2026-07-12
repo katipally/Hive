@@ -23,7 +23,7 @@ import {
 const DEFAULT_TTL = 48 * 3_600_000; // 48h to collect
 
 // Anonymity floor: never synthesize (and thus surface) fewer than this many answers,
-// or the initiator could attribute a lone reply. Default 2 keeps the small demo group
+// or the initiator could attribute a lone reply. Default 2 keeps a small group
 // working (3 members → 2 pollable friends) while still blocking single-answer synthesis;
 // raise it for larger groups where stronger anonymity is warranted.
 const MIN_POLL_RESPONDENTS = Math.max(2, Number(process.env["HIVE_POLL_MIN_RESPONDENTS"] ?? 2));

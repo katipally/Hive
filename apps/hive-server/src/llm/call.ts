@@ -4,10 +4,10 @@ import { resolveRole } from "../settings/settings.js";
 import { getKVNum, setKVNum } from "../db/kv.js";
 import type { ModelRole } from "@hive/shared";
 
-// Global daily call cap — a safety backstop for the hosted demo's shared/baked key.
+// Global daily call cap — a safety backstop for a hosted instance's shared/baked key.
 // 0 (unset) = unlimited, so local dev is never affected. State is persisted in the DB
 // (not a module variable) so a Render cold-start doesn't reset the count to 0 and defeat
-// the cap. ponytail: add per-IP buckets only if the public demo actually gets abused.
+// the cap. ponytail: add per-IP buckets only if the public instance actually gets abused.
 const DAILY_CAP = Number(process.env["HIVE_LLM_DAILY_CAP"] ?? 0);
 function chargeBudget(): void {
   if (!DAILY_CAP) return;
@@ -18,7 +18,7 @@ function chargeBudget(): void {
     windowStart = now;
     count = 0;
   }
-  if (count >= DAILY_CAP) throw new Error("Daily demo limit reached — the shared model budget resets within 24h.");
+  if (count >= DAILY_CAP) throw new Error("Daily limit reached — the shared model budget resets within 24h.");
   setKVNum("llm:capWindowStart", windowStart);
   setKVNum("llm:capCount", count + 1);
 }

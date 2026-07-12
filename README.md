@@ -86,18 +86,23 @@ disclosures, and the nudges all grow out of the real conversations members have 
 
 ### The interesting part: keeping a secret
 
-Say Bob tells his bee he is planning a surprise party for Alice. That fact now lives in the
-hive. Then Alice asks her bee, "are Bob and Cara up to something?"
+Say Devon quietly tells his bee he is job-hunting and asks to keep it private — especially from
+anyone connected to his work. That fact now lives in the hive. Then Sam, who is hiring a backend
+engineer, asks his bee, "know anyone good who might be open to a new role?"
 
 ```
- Bob's bee    ->  hive learns "surprise party for Alice"   (private to Bob)
- Alice asks   ->  hive runs the disclosure agent  ->  withhold
- Alice hears  ->  "I don't have anything on that"          (secret kept)
+ Devon's bee  ->  hive learns "job-hunting, confidential"   (private to Devon)
+ Sam asks     ->  hive runs the disclosure agent  ->  withhold
+ Sam hears    ->  nothing about Devon                        (secret kept)
 ```
 
-The disclosure agent runs every time knowledge would cross between people. It can **share**,
-**partially share**, or **withhold**. It fails safe, so if anything goes wrong it withholds. And
-it writes down its reasoning every single time, which is what fills the Disclosures tab.
+The clever part: the hive still *knows* Devon is a perfect match, and it will happily share his
+**climbing hobby** to connect the two as friends — it just refuses to surface the **job hunt** to
+someone in his work orbit. Same person, one fact shared, one withheld. The disclosure agent runs
+every time knowledge would cross between people; it can **share**, **partially share**, or
+**withhold**, fails safe (anything goes wrong → withhold), and writes down its reasoning every
+single time, which is what fills the Disclosures tab. (The screenshot below is this exact case,
+live.)
 
 ![Disclosures](docs/images/disclosures.png)
 
@@ -106,7 +111,7 @@ it writes down its reasoning every single time, which is what fills the Disclosu
 - **Memory with a timeline.** Facts are stored with a validity range. When something changes, the old version is marked outdated instead of deleted, so there is history.
 - **Contextual-integrity disclosure.** The share-or-withhold judgment above, fully audited.
 - **Proactive reach-outs.** A heartbeat looks for introductions worth making and things you would want to know, with cooldowns and quiet hours so it does not get annoying.
-- **Ask your network.** Post an anonymous question to the group and get a synthesized answer back.
+- **Ask your network.** Post an anonymous question to the group and get one synthesized answer back — with an anonymity floor so a lone reply is never attributable.
 - **Real-world errands + web lookup.** The bee can search the web (no API key needed — keyless by default, Exa if you add a key) and go find things you mention wanting.
 - **Reminders.** Ask to be reminded of something later and the bee will message you when it's due.
 - **Reach people anywhere.** Web chat always works. Telegram and Discord plug in too.
@@ -114,6 +119,10 @@ it writes down its reasoning every single time, which is what fills the Disclosu
 - **Keys stay safe.** Provider keys are encrypted on disk, and bees never hold them.
 
 ![Proactive](docs/images/proactive.png)
+
+Ask the whole group a question anonymously and the hive gathers replies and synthesises one answer:
+
+![Polls](docs/images/polls.png)
 
 ## Running it yourself
 
