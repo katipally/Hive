@@ -80,7 +80,11 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
   const memberUid = (beeId: string): string | undefined => {
     if (!process.env["BEE_DEMO"]) return undefined;
     const nm = bees.get(beeId)?.instance.name;
-    return nm ? `web-${nm.toLowerCase()}` : undefined;
+    // Only pin the seeded demo personas (Alice/Bob/…). A profile the user added at
+    // runtime is named "New profile" and was paired with the browser's own uid, so
+    // pinning "web-new profile" would resolve to nothing — fall back to the real uid.
+    if (!nm || nm === "New profile") return undefined;
+    return `web-${nm.toLowerCase()}`;
   };
 
   // Spin up a brand-new bee at runtime: mint id+token, persist to config, wire

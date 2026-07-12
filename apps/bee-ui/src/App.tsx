@@ -269,11 +269,24 @@ export function App() {
     loadBees().then((b) => setBeeId((cur) => (b.some((x) => x.beeId === cur) ? cur : b[0]?.beeId ?? "")));
   }, [loadBees]);
 
-  // Refresh which channels this member has linked — re-runs when the dialog opens so a
-  // freshly-linked channel flips to "connected" without a page reload.
+  // Refresh which channels this member has linked. Linking happens out-of-band (the member
+  // sends their code inside Telegram/Discord), so besides the dialog-open trigger we also
+  // refetch when the tab regains focus and poll periodically — otherwise a fresh link never
+  // flips to "connected" while the user stays on the page.
   useEffect(() => {
     if (!beeId) { setMyChannels({}); return; }
-    fetch(`${API_BASE}/my-channels?bee=${beeId}&uid=${uidFor(beeId)}`).then((r) => r.json()).then(setMyChannels).catch(() => {});
+    const refresh = () =>
+      fetch(`${API_BASE}/my-channels?bee=${beeId}&uid=${uidFor(beeId)}`).then((r) => r.json()).then(setMyChannels).catch(() => {});
+    refresh();
+    const onFocus = () => refresh();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    const t = setInterval(refresh, 20_000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+      clearInterval(t);
+    };
   }, [beeId, channelsOpen]);
 
   useEffect(() => {

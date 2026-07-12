@@ -11,7 +11,10 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, active: boolean
     const el = ref.current;
     const prev = document.activeElement as HTMLElement | null;
     const focusables = () => Array.from(el?.querySelectorAll<HTMLElement>(SEL) ?? []).filter((n) => n.offsetParent !== null);
-    (focusables()[0] ?? el)?.focus();
+    // Prefer the first text field so a modal with an input lands focus there (not the
+    // close button) — otherwise Enter would target the ✕ instead of submitting.
+    const fields = focusables().filter((n) => /^(INPUT|TEXTAREA|SELECT)$/.test(n.tagName));
+    (fields[0] ?? focusables()[0] ?? el)?.focus();
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); onClose?.(); return; }

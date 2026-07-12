@@ -291,12 +291,17 @@ export function pickIdentity(member: Member): ChannelIdentity | null {
   return listIdentities(member.id)[0] ?? null;
 }
 
-// Channels to deliver a proactive message on: the member's MOST-RECENTLY-used channel
-// and their MOST-FREQUENTLY-used channel (deduped to one when they're the same).
-// A member who lives in Telegram but last replied on web hears it in both places.
-// Derived from `turns` — no schema change. Falls back to pickIdentity() before any
-// turns exist.
+// Channels to deliver a proactive message on. Always includes WEB (the bee) when the
+// member has a web identity — that's their home base and should never be missed — PLUS
+// their MOST-RECENTLY-used and MOST-FREQUENTLY-used channel (so someone who lives in
+// Telegram also hears it there). Deduped. Derived from `turns` — no schema change.
 export function pickDeliveryIdentities(member: Member): ChannelIdentity[] {
+  const all = listIdentities(member.id);
+  const ids = new Set<string>();
+  // web is home base — always deliver there if the member is paired on web
+  const web = all.find((c) => c.channel === "web");
+  if (web) ids.add(web.id);
+
   const rows = getDb()
     .db.prepare(
       `SELECT channel_identity_id AS ci, COUNT(*) AS cnt, MAX(ts) AS last
@@ -304,14 +309,15 @@ export function pickDeliveryIdentities(member: Member): ChannelIdentity[] {
        GROUP BY channel_identity_id`,
     )
     .all(member.id) as { ci: string; cnt: number; last: number }[];
-  if (rows.length === 0) {
-    const one = pickIdentity(member);
-    return one ? [one] : [];
+  if (rows.length) {
+    ids.add([...rows].sort((a, b) => b.last - a.last)[0]!.ci); // most-recently-used
+    ids.add([...rows].sort((a, b) => b.cnt - a.cnt)[0]!.ci); // most-frequently-used
   }
-  const recent = [...rows].sort((a, b) => b.last - a.last)[0]!.ci;
-  const frequent = [...rows].sort((a, b) => b.cnt - a.cnt)[0]!.ci;
-  const ids = recent === frequent ? [recent] : [recent, frequent];
-  return ids.map((i) => getIdentity(i)).filter((x): x is ChannelIdentity => !!x);
+  if (ids.size === 0) {
+    const one = pickIdentity(member); // no web, no turns yet — best single guess
+    if (one) ids.add(one.id);
+  }
+  return [...ids].map((i) => getIdentity(i)).filter((x): x is ChannelIdentity => !!x);
 }
 
 // ---- bees ----
