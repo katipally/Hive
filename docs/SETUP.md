@@ -53,10 +53,12 @@ This is the one-time bot setup. Everything here runs on your **primary bee**.
 **Discord**
 1. https://discord.com/developers/applications → **New Application**.
 2. **Bot** tab → add a bot → copy the **token**.
-3. Enable **Message Content Intent** (same page).
-4. Invite the bot: **OAuth2 → URL Generator** → scope `bot` → open the URL (or just
-   allow DMs to it).
-5. Dashboard → **Channels** → Discord → paste the token → **Connect**.
+3. Enable **both** privileged intents (same page): **Server Members Intent** and
+   **Message Content Intent**.
+4. **OAuth2 → URL Generator** → scope `bot` → open the URL → add the bot to a server you
+   control, then make a **server invite link that never expires**.
+5. Dashboard → **Channels** → Discord → paste the **token** and the **server invite link**
+   → **Connect**. When someone joins the server, the bot DMs them to start pairing.
 
 > **No iMessage.** Apple has no server API for iMessage, and it can't run on a hosted
 > (Linux) server, so it isn't supported. Use **Telegram** for the "texts you on your
@@ -76,7 +78,7 @@ You hand them a code (`BEE-1234`) and tell them which bot to message:
 | Channel   | What the member does                                              |
 |-----------|------------------------------------------------------------------|
 | Telegram  | Open your hive's Telegram bot, send `BEE-1234`                     |
-| Discord   | Join the server, DM your hive's Discord bot, send `BEE-1234`       |
+| Discord   | Join the server via the invite link; the bot DMs you — reply `BEE-1234` |
 | Web       | Open the web chat, paste `BEE-1234`                               |
 
 The bee replies "✅ Linked!" and they can talk normally from then on. If they later

@@ -5,6 +5,15 @@
 > slash commands, polls, dashboard). Read-only — nothing was modified. `[ ]` = open, check off as fixed.
 >
 > Interactive version: the published audit artifact (same content, visual).
+>
+> **Note (post-audit):** this audit was written against the earlier codebase, which had a
+> **demo mode** — seeded personas, a canned conversation replay, and `HIVE_DEMO` / `BEE_DEMO`
+> / `VITE_DEMO` / `HIVE_DEMO_MODEL` env flags, plus a `demo.ts` bootstrap and a `pnpm seed`
+> script. That scaffolding has since been **removed**: the hive now boots empty, the operator
+> creates members, and people pair with a `BEE-XXXX` code. The single model env var is now
+> `HIVE_MODEL` (default `MiniMax-M3`) with the key baked from `MINIMAX_API_KEY`. Findings below
+> that mention `demo.ts`, the seeded members, or the old env flags describe that earlier code
+> and are kept for the record; where the reference is now factually wrong it's flagged inline.
 
 ## Remediation pass (July 2026)
 
@@ -313,11 +322,11 @@ Content is identical (shared `bee.ts`), but rendering + delivery diverge.
 
 No mocks/TODOs/fakes in real code paths — deliberate shortcuts are honestly tagged `ponytail:`.
 
-- [ ] **Model-name mismatch (real bug):** `render.yaml` sets `HIVE_DEMO_MODEL=MiniMax-M2`, `demo.ts:38`
-  defaults to `MiniMax-M3`, `providers.ts` lists M3 first. If M2/M3 availability differs on MiniMax's API,
-  the hosted demo silently fails on first call. Pick one, align all three.
-- [ ] **75s orchestrator kick** (`demo.ts:54`) — fragile magic delay tuned to "extraction is done." Cold model
-  / retries → the showcased proactive nudge has no data yet.
+- [x] **Model-name mismatch (real bug):** `render.yaml` set `HIVE_DEMO_MODEL=MiniMax-M2`, `demo.ts:38`
+  defaulted to `MiniMax-M3`, `providers.ts` lists M3 first. *Resolved by the demo-scaffolding removal:*
+  there's now one var, `HIVE_MODEL` (default `MiniMax-M3`), and `demo.ts` is gone.
+- [x] **75s orchestrator kick** (`demo.ts:54`) — fragile magic delay tuned to "extraction is done." *Moot:*
+  `demo.ts` and the seeded-conversation replay were removed; the graph now fills from real chats, not a boot kick.
 - [ ] **Centralize buried thresholds:** dedup `0.82`, entity-merge `0.94`, hub cutoff `max(8,p90)`, BFS
   `depth 2/limit 12`, cooldown formula, retrieval `MAX_HITS 12 / recency 6`, graph render caps `3000`,
   `maxTurns 6`, many `LIMIT`s. Name them in one config module.
@@ -340,7 +349,8 @@ No mocks/TODOs/fakes in real code paths — deliberate shortcuts are honestly ta
 - [ ] **MINE-3 — Memory injected twice per turn (system prompt + fake assistant turn).** `bee.ts:304-312` +
   `buildSystem:462-465`. Works around MiniMax's system-prompt under-weighting but ships the facts twice
   (wasted tokens / over-anchoring). Storage is clean (not persisted). Consider dropping from the system prompt.
-- [ ] **MINE-4 — Demo model default set to M3 but `render.yaml` left at M2.** Align (see §08).
+- [x] **MINE-4 — Demo model default set to M3 but `render.yaml` left at M2.** *Resolved:* collapsed to a
+  single `HIVE_MODEL` (default `MiniMax-M3`) when demo mode was removed (see §08).
 
 ---
 

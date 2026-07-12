@@ -19,7 +19,8 @@ connection, so it boots like a brand-new install. It does **not** touch your cod
 ```
 
 Cloud (Render free tier) keeps the same layout on an **ephemeral disk** — it already
-wipes on every restart/redeploy, so "resetting" the cloud is just restarting it.
+wipes on every restart/redeploy and boots empty, so "resetting" the cloud is just
+restarting it.
 
 ---
 
@@ -46,14 +47,13 @@ rm -rf apps/bee/bee-data
 pnpm dev
 ```
 
-- In **demo mode** (`HIVE_DEMO=1` / `BEE_DEMO=1`) it re-seeds the 3 members + demo
-  conversations automatically.
-- In **normal mode** it comes up empty — you re-add members and reconnect channels.
+It comes up **empty** — there's no reseed. You re-add members, re-pair, and reconnect channels.
 
 ### Heads-up when you delete `hive-data`
 Your **MiniMax key and model roles live in `hive.db`** (encrypted). Deleting `hive-data`
 forgets them, so after a full reset either:
-- let the **demo bootstrap re-bake them from env** (`MINIMAX_API_KEY`, `HIVE_DEMO_MODEL`), or
+- if you set `MINIMAX_API_KEY` + `HIVE_MODEL` in the environment, they **re-bake from env on
+  the next boot**, or
 - re-enter the key + pick MiniMax-M3 in the dashboard **Settings** tab.
 
 Deleting `bee-data/bee.json` forgets **channel tokens** — you'll reconnect Telegram/Discord
@@ -70,11 +70,11 @@ pkill -f "tsx watch" ; rm -rf apps/hive-server/hive-data apps/bee/bee-data && pn
 ## Cloud reset (Render)
 
 The free tier has **no persistent disk**, so runtime data is thrown away on every boot
-and the demo re-seeds itself. To force a clean slate:
+and the instance comes back empty. To force a clean slate:
 
 1. Render dashboard → the **hive-demo** service.
 2. **Manual Deploy → Deploy latest commit** (or **Restart service**).
-3. On boot it starts from an empty DB and re-seeds the demo. Done.
+3. On boot it starts from an empty DB (only the provider key re-bakes from env). Done.
 
 Nothing to delete by hand — the ephemeral disk *is* the reset. If you later attach a
 **persistent disk** for accumulating memory, clear it instead via the service **Shell**:

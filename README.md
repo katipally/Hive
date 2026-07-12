@@ -5,21 +5,22 @@ shared brain, the **hive**. The hive quietly learns what everyone is up to, reme
 connects people when it makes sense. It also knows how to keep a secret: it decides what is okay
 to pass between friends and what should stay put.
 
-**Try the live demo, nothing to install:**
+**A hosted instance runs here:**
 
 - Bee chat: **https://hive-demo.onrender.com/chat**
 - Hive dashboard: **https://hive-demo.onrender.com/**
 
-> It runs on a free host that falls asleep when idle, so the very first load can take about 50
-> seconds to wake up. After that it is quick.
+> It boots **empty** — nothing is pre-seeded. The operator adds members on the dashboard, and
+> people pair with an invite code before there's anything to see. It runs on a free host that
+> falls asleep when idle, so the very first load can take about 50 seconds to wake up.
 
 ## The idea in one picture
 
 ```mermaid
 flowchart LR
-  A[Alice] --> H[Hive brain]
-  B[Bob] --> H
-  C[Cara] --> H
+  A[Member] --> H[Hive brain]
+  B[Member] --> H
+  C[Member] --> H
   H --> D[Dashboard]
   H -.->|nudges| A
   H -.->|nudges| B
@@ -27,27 +28,28 @@ flowchart LR
 ```
 
 Each person only ever talks to their own bee. The hive sits in the middle, builds a memory of
-the whole group, and reaches out when it spots something worth a nudge.
+the whole group from real conversations, and reaches out when it spots something worth a nudge.
 
 ## Two websites, two jobs
 
-The demo is two sites. One is for the people in the group, one is for whoever runs it.
+Hive is two sites. One is for the people in the group, one is for whoever runs it.
 
-|               | Bee chat                  | Hive dashboard        |
-| ------------- | ------------------------- | --------------------- |
-| Who it is for | a member (Alice/Bob/Cara) | the operator          |
-| What you do   | chat with your bee        | watch the hive think  |
-| Where         | `/chat`                   | `/`                   |
+|               | Bee chat            | Hive dashboard        |
+| ------------- | ------------------- | --------------------- |
+| Who it is for | a member            | the operator          |
+| What you do   | chat with your bee  | watch the hive think  |
+| Where         | `/chat`             | `/`                   |
 
 ### Bee chat → `/chat`
 
-Where a person talks to their bee. In the demo, the top-left **Profile** picker holds the three
-people. Switch it to become Alice, Bob, or Cara and you drop straight into that person's world.
+Where a person talks to their bee.
 
-1. Pick a profile: **Alice**, **Bob**, or **Cara**.
-2. Read their past chats. Each person has a few conversations in the **Chats** list on the left.
-3. Type a new message and the bee replies live.
-4. Ask about someone else and watch what it will and will not tell you.
+1. Paste the invite code (`BEE-XXXX`) the operator gave you to pair.
+2. Type a message and the bee replies live. Everything you say flows into the hive.
+3. Ask about someone else and watch what it will and will not tell you.
+
+The top-left **Profile** picker is a multi-account switcher: paste another member's code to add
+their profile and switch between people from one browser.
 
 ![Bee chat](docs/images/chat.png)
 
@@ -79,8 +81,8 @@ flowchart LR
   DA -->|private| X[held back]
 ```
 
-Nothing is hardcoded. On the demo, the three bees replay a few real conversations on startup,
-and the graph, the disclosures, and the nudges all grow out of those chats.
+Nothing is hardcoded and nothing is pre-seeded. The hive starts empty; the graph, the
+disclosures, and the nudges all grow out of the real conversations members have with their bees.
 
 ### The interesting part: keeping a secret
 
@@ -115,15 +117,14 @@ it writes down its reasoning every single time, which is what fills the Disclosu
 
 ## Running it yourself
 
-Most people will not need to. If you want to:
-
 ```bash
 pnpm install
 pnpm dev          # dashboard on :5173, bee chat on :5174
 ```
 
-Add a model key in **Settings**, add a member in **Members**, and send that member's code in
-the chat to link. The full walkthrough is in [docs/SETUP.md](docs/SETUP.md).
+The hive comes up empty. Add a model key in **Settings**, add a member in **Members**, then
+open the chat and paste that member's code to pair. From there, real conversations populate the
+graph, disclosures, nudges, and polls. The full walkthrough is in [docs/SETUP.md](docs/SETUP.md).
 
 ## Docs
 

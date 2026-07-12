@@ -1,7 +1,7 @@
 # Hosting
 
-How the public demo is built and where it currently runs. Kept as a reference for future
-deploys.
+How the hosted build is put together and where it currently runs. Kept as a reference for
+future deploys.
 
 ## The hosted build: one container
 
@@ -31,8 +31,9 @@ Files:
 - `Dockerfile`, installs deps, builds both SPAs, downloads the Caddy binary, copies the
   Caddyfile + entrypoint.
 - `docker/Caddyfile`, the routing above.
-- `docker/entrypoint.sh`, starts hive-server and bee, then Caddy in the foreground; exits (so
-  the host restarts) if any of the three dies.
+- `docker/entrypoint.sh`, starts hive-server and bee, **waits for both to accept connections
+  on :4800/:4801**, then starts Caddy — so the boot window doesn't return a flood of 502s.
+  Exits (so the host restarts) if any of the three dies.
 - `render.yaml`, the Render Blueprint.
 
 > **Caddy gotcha:** the official `caddy` Docker image ships its binary with Linux file
@@ -41,29 +42,24 @@ Files:
 > downloads a plain release binary, which has no capabilities. We bind `$PORT`, not a
 > privileged port, so none are needed.
 
-## Demo mode
+## Boot behaviour: empty hive, baked key
 
-The hosted build runs in demo mode, driven by three environment flags:
+The hosted build boots **empty** — no seeded members, no canned conversations. On startup the
+hive bakes the provider key and model roles from env (`MINIMAX_API_KEY` + `HIVE_MODEL`), so the
+app comes up with a working model but nothing to show yet. The operator then creates members on
+the dashboard, people pair with their `BEE-XXXX` codes, and real conversations populate the
+graph, disclosures, nudges, and polls through the normal pipeline.
 
-- `HIVE_DEMO=1`, the hive bakes the provider key + model roles from env, creates three
-  members, and kicks one orchestrator pass after the bees have seeded conversations.
-- `BEE_DEMO=1`, the bee runtime starts **one bee per member** (shown as switchable profiles),
-  pins each bee to its member server-side, and replays a couple of realistic conversations per
-  member on boot. The hive's graph, disclosures, and nudges are then built from those
-  conversations through the normal pipeline, nothing is hand-inserted.
-- `VITE_DEMO=1`, build flag for the bee chat SPA.
-
-Because the free tier has no persistent disk, data is **re-seeded on every boot**; this is why
-the demo doesn't need a paid disk.
+Because the free tier has no persistent disk, all that runtime data is thrown away on restart
+and the instance boots empty again — but the provider key **re-bakes from `MINIMAX_API_KEY` on
+every boot**, so the model still works after a restart.
 
 ## Environment variables
 
 | Var | Purpose | Default |
 |-----|---------|---------|
-| `MINIMAX_API_KEY` | Baked-in provider key (set as a secret, never committed) |, |
-| `HIVE_DEMO` | Enable the hive demo bootstrap | `1` (render.yaml) |
-| `BEE_DEMO` | Enable the 3-bee demo runtime | `1` (entrypoint) |
-| `HIVE_DEMO_MODEL` | MiniMax model for chat/extraction/social | `MiniMax-M3` |
+| `MINIMAX_API_KEY` | Provider key, baked from env at boot (set as a secret, never committed) | — |
+| `HIVE_MODEL` | MiniMax model used for the chat/extraction/social roles | `MiniMax-M3` |
 | `HIVE_LLM_DAILY_CAP` | Global daily LLM-call cap protecting the shared key | `300` |
 | `HIVE_SALIENCE_MIN` | Min memory salience to trigger a proactive-nudge LLM call | `0.6` |
 | `HIVE_MINIMAX_BASE_URL` | Override for MiniMax's CN endpoint | `api.minimax.io/anthropic` |
@@ -98,7 +94,8 @@ variables come from `render.yaml`.
 - **Spin-down:** the instance sleeps after ~15 min idle and cold-starts (~50s) on the next
   request. This also pauses Hive's proactive loops, so **keep it warm** if you want it to
   initiate unattended (see below).
-- **Ephemeral disk:** runtime data resets on restart/redeploy; the demo re-seeds on boot.
+- **Ephemeral disk:** runtime data (graph, members, transcripts) resets on restart/redeploy;
+  the instance boots empty again and only the provider key re-bakes from env.
 
 ### Keeping it awake (so proactivity actually runs)
 
@@ -125,7 +122,7 @@ API; see docs/CHANNELS.md.)
 ```bash
 docker build -t hive-demo .
 docker run --rm -p 8080:8080 \
-  -e MINIMAX_API_KEY=your-key -e HIVE_DEMO=1 -e HIVE_LLM_DAILY_CAP=300 \
+  -e MINIMAX_API_KEY=your-key -e HIVE_MODEL=MiniMax-M3 -e HIVE_LLM_DAILY_CAP=300 \
   hive-demo
-# open http://localhost:8080
+# open http://localhost:8080 — it boots empty; add a member on the dashboard, then pair in /chat
 ```
