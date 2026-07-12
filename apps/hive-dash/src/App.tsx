@@ -1,10 +1,12 @@
 import { AnimatePresence, motion } from "motion/react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { Share2, Zap, ShieldCheck, Users, SlidersHorizontal, MessagesSquare, Cable } from "lucide-react";
+import { Share2, Zap, ShieldCheck, Users, SlidersHorizontal, MessagesSquare, Cable, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { HexMark } from "./components/Logo.js";
 import { ThemeToggle, StatusDot } from "@hive/ui";
 import { cn } from "./lib/cn.js";
 import { fadeUp } from "./lib/motion.js";
+import { Resizer } from "./components/Resizer.js";
+import { usePersistentNumber, usePersistentBool } from "./lib/uiState.js";
 import { useDashSocket } from "./useDashSocket.js";
 import { useState } from "react";
 import { GraphPage } from "./pages/GraphPage.js";
@@ -29,14 +31,38 @@ export function App() {
   const [online, setOnline] = useState(false);
   useDashSocket(() => {}, setOnline);
   const location = useLocation();
+  const [navW, setNavW] = usePersistentNumber("hive-nav-w", 206);
+  const [navCollapsed, , toggleNav] = usePersistentBool("hive-nav-collapsed", false);
 
   return (
     <div className="relative z-10 flex h-full gap-2 bg-background p-2">
-      <nav className="flex w-[206px] shrink-0 flex-col gap-1 px-2 py-2">
+      {navCollapsed && (
+        <button
+          onClick={toggleNav}
+          title="Show sidebar"
+          aria-label="Show sidebar"
+          className="absolute left-2 top-3 z-40 grid size-8 place-items-center rounded-lg text-muted transition hover:bg-fg/[0.06] hover:text-fg"
+        >
+          <PanelLeftOpen size={17} />
+        </button>
+      )}
+      <div
+        className="relative shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
+        style={{ width: navCollapsed ? 0 : navW }}
+      >
+      <nav className="flex h-full flex-col gap-1 px-2 py-2" style={{ width: navW }}>
         <div className="flex items-center gap-2.5 px-2 pb-4">
           <HexMark />
           <div className="text-[17px] font-semibold tracking-tight">Hive</div>
-          <ThemeToggle className="ml-auto" />
+          <button
+            onClick={toggleNav}
+            title="Hide sidebar"
+            aria-label="Hide sidebar"
+            className="ml-auto grid size-7 place-items-center rounded-md text-faint transition hover:bg-fg/[0.06] hover:text-fg"
+          >
+            <PanelLeftClose size={15} />
+          </button>
+          <ThemeToggle />
         </div>
         {TABS.map(({ path, label, Icon }) => (
           <NavLink
@@ -62,6 +88,8 @@ export function App() {
           {online ? "Hive connected" : "reconnecting…"}
         </div>
       </nav>
+        {!navCollapsed && <Resizer edge="right" width={navW} min={180} max={320} onChange={setNavW} />}
+      </div>
 
       <main className="relative min-w-0 flex-1 overflow-hidden">
         <AnimatePresence mode="wait">

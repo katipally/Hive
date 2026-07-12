@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowUp, Sparkles, Mic, AudioLines, Settings2, Plus, PanelLeftClose, PanelLeftOpen, Cable, Send, Hash, MoreHorizontal, Trash2, Pencil, Link2 } from "lucide-react";
+import { ArrowUp, Sparkles, Mic, AudioLines, Settings2, Plus, PanelLeftClose, PanelLeftOpen, Send, Hash, MoreHorizontal, Trash2, Pencil, Link2 } from "lucide-react";
 import { BeeMark } from "./Logo.js";
-import { ThemeToggle, useToast, Thinking, StatusDot, Avatar, ConfirmDialog } from "@hive/ui";
+import { ThemeToggle, useToast, Thinking, StatusDot, Avatar, ConfirmDialog, Dialog } from "@hive/ui";
 import { cn } from "./lib/cn.js";
 import { Markdown } from "./lib/markdown.js";
 import { dropdown } from "./lib/motion.js";
@@ -121,7 +121,9 @@ export function App() {
   const [memberNames, setMemberNames] = useState<Record<string, string>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(false);
+  const [focusChannel, setFocusChannel] = useState<string | null>(null); // deep-link the dialog to one channel
   const [chInfo, setChInfo] = useState<Record<string, unknown>>({});
+  const [myChannels, setMyChannels] = useState<Record<string, boolean>>({}); // which channels this member has linked
   useEffect(() => { fetch(`${API_BASE}/channel-info`).then((r) => r.json()).then(setChInfo).catch(() => {}); }, []);
 
   // Multiple conversation threads per profile (chat history).
@@ -221,6 +223,7 @@ export function App() {
           k === sessionsKey(removed) ||
           k === activeKey(removed) ||
           k === `bee_uid_${removed}` ||
+          k === `bee_code_${removed}` ||
           k === memberKey(removed) ||
           k.startsWith(`bee_msgs_${removed}_`)
         ) localStorage.removeItem(k);
@@ -232,7 +235,6 @@ export function App() {
       toast("Couldn't remove this profile", "error");
     }
   }
-  const [newBee, setNewBee] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem("bee_sidebar") !== "0");
   const { prefs, set: setPref } = usePrefs();
   const logRef = useRef<HTMLDivElement>(null);
@@ -267,6 +269,13 @@ export function App() {
     loadBees().then((b) => setBeeId((cur) => (b.some((x) => x.beeId === cur) ? cur : b[0]?.beeId ?? "")));
   }, [loadBees]);
 
+  // Refresh which channels this member has linked — re-runs when the dialog opens so a
+  // freshly-linked channel flips to "connected" without a page reload.
+  useEffect(() => {
+    if (!beeId) { setMyChannels({}); return; }
+    fetch(`${API_BASE}/my-channels?bee=${beeId}&uid=${uidFor(beeId)}`).then((r) => r.json()).then(setMyChannels).catch(() => {});
+  }, [beeId, channelsOpen]);
+
   useEffect(() => {
     if (!beeId) return;
     localStorage.setItem("bee_sel", beeId);
@@ -276,7 +285,8 @@ export function App() {
     if (DEMO) {
       fetch(`${API_BASE}/my-code?bee=${beeId}&uid=${uidFor(beeId)}`)
         .then((r) => r.json())
-        .then((r: { name?: string }) => {
+        .then((r: { name?: string; code?: string }) => {
+          if (r?.code) localStorage.setItem(`bee_code_${beeId}`, r.code);
           if (!r?.name) return;
           localStorage.setItem(memberKey(beeId), r.name);
           setPairedName(r.name);
@@ -301,20 +311,57 @@ export function App() {
     setSidebarOpen((o) => { localStorage.setItem("bee_sidebar", o ? "0" : "1"); return !o; });
   }
 
-  async function addBee() {
-    const nm = newBee.trim();
+  // Add a profile by invite code: the profile IS a member, so we don't ask for a name —
+  // we create the bee, pair it to the code's member, and take the name from the member.
+  const [codeInput, setCodeInput] = useState("");
+  const [codeErr, setCodeErr] = useState("");
+  const [pairingBusy, setPairingBusy] = useState(false);
+  async function addProfileByCode() {
+    const code = codeInput.trim().toUpperCase();
+    if (!/^BEE-[A-Z0-9]{4}$/.test(code)) { setCodeErr("Enter a code like BEE-AQ5K."); return; }
+    setPairingBusy(true);
+    setCodeErr("");
+    let created: BeeInfo | null = null;
     try {
-      const created = (await fetch(`${API_BASE}/bees`, {
+      // 1) create the bee (profile)
+      const bres = await fetch(`${API_BASE}/bees`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: nm }),
-      }).then((r) => r.json())) as BeeInfo;
-      setNewBee("");
+        body: JSON.stringify({ name: "New profile" }),
+      });
+      if (!bres.ok) { setCodeErr(`Couldn't reach the bee runtime (HTTP ${bres.status}). Is it running?`); return; }
+      created = (await bres.json()) as BeeInfo;
+      if (!created?.beeId) { setCodeErr("The bee runtime didn't return a profile. Try again."); return; }
+
+      // 2) pair it to the code's member
+      const res = await fetch(`${API_BASE}/pair`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bee: created.beeId, uid: uidFor(created.beeId), code }),
+      });
+      const j = (await res.json().catch(() => null)) as { ok?: boolean; name?: string; error?: string } | null;
+      if (!res.ok || !j?.ok) {
+        // roll back the bee we just made so no unpaired orphan profile is left behind
+        await fetch(`${API_BASE}/bees/${created.beeId}`, { method: "DELETE" }).catch(() => {});
+        setCodeErr(j?.error ?? `That code didn't work (HTTP ${res.status}).`);
+        return;
+      }
+
+      // 3) success — name the profile from the member and switch to it
+      const name = j.name ?? "friend";
+      localStorage.setItem(memberKey(created.beeId), name);
+      localStorage.setItem(`bee_code_${created.beeId}`, code); // so the code always shows, even if the uid drifts
+      setMemberNames((mm) => ({ ...mm, [created!.beeId]: name }));
       await loadBees();
       setBeeId(created.beeId);
-      toast("Bee added");
-    } catch {
-      toast("Couldn't add a bee", "error");
+      setCodeInput("");
+      setAddingProfile(false);
+      toast(`Linked as ${name}`);
+    } catch (e) {
+      if (created?.beeId) await fetch(`${API_BASE}/bees/${created.beeId}`, { method: "DELETE" }).catch(() => {});
+      setCodeErr(`Couldn't add the profile: ${(e as Error).message}`);
+    } finally {
+      setPairingBusy(false);
     }
   }
 
@@ -431,39 +478,34 @@ export function App() {
               )}
             </Menu>
           </div>
-          {addingProfile && (
-            <input
-              value={newBee}
-              onChange={(e) => setNewBee(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { addBee(); setAddingProfile(false); } }}
-              placeholder="Name the profile, then Enter…"
-              autoFocus
-              className="mt-1 w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-[12px] text-fg outline-none placeholder:text-faint"
-            />
+          {/* Channels — the shared channels this profile can be reached on, each showing
+              whether it's already linked. One list, no duplicate "reach elsewhere" catch-all.
+              Hidden entirely when the operator hasn't set up any channel. */}
+          {CONN.some((c) => chInfo[c.id]) && (
+            <>
+              <div className="px-2 pb-1 pt-4 text-[11px] font-medium uppercase tracking-wider text-faint">Channels</div>
+              <div className="flex flex-col gap-0.5">
+                {CONN.filter((c) => chInfo[c.id]).map((c) => {
+                  const connected = !!myChannels[c.id];
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => { setFocusChannel(c.id); setChannelsOpen(true); }}
+                      className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] text-muted transition hover:bg-fg/[0.05] hover:text-fg"
+                    >
+                      <c.Icon size={13} className="text-accent" />
+                      <span className="flex-1 truncate">{c.label}</span>
+                      {connected ? (
+                        <span className="flex items-center gap-1 text-[10px] font-medium text-share"><StatusDot online /> connected</span>
+                      ) : (
+                        <span className="text-[10px] text-faint">connect →</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
-
-          {/* Connections — the shared channels this profile can be reached on. Sits
-              between Profile and Chats so the (flexible) chat list keeps the scroll region. */}
-          <div className="px-2 pb-1 pt-4 text-[11px] font-medium uppercase tracking-wider text-faint">Connections</div>
-          <div className="flex flex-col gap-0.5">
-            {CONN.filter((c) => chInfo[c.id]).map((c) => (
-              <button
-                key={c.id}
-                onClick={() => setChannelsOpen(true)}
-                className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] text-muted transition hover:bg-fg/[0.05] hover:text-fg"
-              >
-                <c.Icon size={13} className="text-accent" />
-                <span className="flex-1 truncate">{c.label}</span>
-                <span className="text-[10px] text-faint">reach →</span>
-              </button>
-            ))}
-            <button
-              onClick={() => setChannelsOpen(true)}
-              className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] text-muted transition hover:bg-fg/[0.05] hover:text-accent"
-            >
-              <Cable size={13} /> Reach your bee elsewhere
-            </button>
-          </div>
 
           {/* Chats — this profile's conversation threads, auto-titled. */}
           <div className="flex items-center justify-between px-2 pb-1 pt-3.5">
@@ -699,16 +741,61 @@ export function App() {
         onUnlink={unlink}
       />
 
-      <Channels open={channelsOpen} onClose={() => setChannelsOpen(false)} beeId={beeId} />
+      <Channels
+        open={channelsOpen}
+        onClose={() => { setChannelsOpen(false); setFocusChannel(null); }}
+        beeId={beeId}
+        focus={focusChannel}
+        connected={myChannels}
+      />
 
       <ConfirmDialog
         open={confirmRemoveProfile}
         onClose={() => setConfirmRemoveProfile(false)}
         onConfirm={removeProfile}
         title="Remove this profile?"
-        description={`This permanently removes “${label(bees.find((b) => b.beeId === beeId) ?? { beeId, name: beeName } as BeeInfo)}” and deletes its chats on this device. This can't be undone.`}
+        description={`Unlinks this device from “${label(bees.find((b) => b.beeId === beeId) ?? { beeId, name: beeName } as BeeInfo)}” and clears its chats here. The member and everything the hive remembers stay intact — only this device is unlinked.`}
         confirmLabel="Remove profile"
       />
+
+      {/* Add a profile by invite code — the profile IS a member, so no name is asked. */}
+      <Dialog
+        open={addingProfile}
+        onClose={() => { setAddingProfile(false); setCodeInput(""); setCodeErr(""); }}
+        title="Add a profile"
+        description="Paste an invite code to log in as that member. The hive operator hands these out on the Members page."
+        className="max-w-sm"
+      >
+        <div className="flex flex-col gap-3">
+          <input
+            value={codeInput}
+            onChange={(e) => { setCodeInput(e.target.value); if (codeErr) setCodeErr(""); }}
+            onKeyDown={(e) => { if (e.key === "Enter") addProfileByCode(); }}
+            placeholder="BEE-XXXX"
+            autoFocus
+            className={cn(
+              "w-full rounded-lg border bg-surface px-3 py-2 font-mono text-[14px] uppercase tracking-wide text-fg outline-none transition-colors placeholder:font-sans placeholder:normal-case placeholder:tracking-normal placeholder:text-faint",
+              codeErr ? "border-withhold/60" : "border-border focus:border-accent/50",
+            )}
+          />
+          {codeErr && <p className="text-[12px] text-withhold">{codeErr}</p>}
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => { setAddingProfile(false); setCodeInput(""); setCodeErr(""); }}
+              className="rounded-lg px-3 py-2 text-[13px] text-muted transition hover:bg-fg/[0.06] hover:text-fg"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={addProfileByCode}
+              disabled={pairingBusy}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-[13px] font-medium text-white shadow-[var(--shadow-accent)] transition hover:brightness-110 disabled:opacity-40"
+            >
+              {pairingBusy ? "Linking…" : "Add profile"}
+            </button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }

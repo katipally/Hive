@@ -148,6 +148,30 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
     if (!bee) return c.json({});
     return c.json(await bee.webMemberCode(memberUid(beeId) ?? c.req.query("uid") ?? ""));
   });
+  // Link a web profile to a member by invite code (the "+ add profile" flow). Returns
+  // the member name so the UI can name the profile; errors surface inline.
+  app.post("/api/pair", async (c) => {
+    const { bee: beeId, uid, code } = await c.req.json<{ bee?: string; uid?: string; code?: string }>();
+    const bee = bees.get(beeId ?? "");
+    if (!bee) return c.json({ ok: false, error: "unknown bee" }, 404);
+    if (!uid || !code) return c.json({ ok: false, error: "Paste your invite code." }, 400);
+    const r = await bee.pairWeb(uid, code.trim().toUpperCase());
+    return c.json(r, r.ok ? 200 : 400);
+  });
+  // Which channels this web member has already linked — drives the "connected here"
+  // badges. Resolves the member via their own code, then passes through to the hive.
+  app.get("/api/my-channels", async (c) => {
+    const beeId = c.req.query("bee") ?? "";
+    const bee = bees.get(beeId);
+    const fallback = { web: true, telegram: false, discord: false };
+    if (!bee) return c.json(fallback);
+    const { code } = (await bee.webMemberCode(memberUid(beeId) ?? c.req.query("uid") ?? "")) as { code?: string };
+    if (!code) return c.json(fallback);
+    const info = await fetch(`${cfg.hiveHttpUrl}/api/member-channels?code=${encodeURIComponent(code)}`)
+      .then((x) => x.json())
+      .catch(() => fallback);
+    return c.json(info as Record<string, unknown>);
+  });
   // The conversation threads that exist for this bee (so the client lists every
   // seeded/prior session, not just ones created in this browser).
   app.get("/api/sessions", (c) => {

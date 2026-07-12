@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { UserPlus, Copy, Check, MessageSquare, Send, Hash, Settings2, Trash2 } from "lucide-react";
 import { api, type MemberRow, type ChannelInfo } from "../api.js";
 import { useDashSocket } from "../useDashSocket.js";
-import { Button, Card, Input, PageHeader, EmptyState, Field, Avatar, StatusDot } from "../components/ui.js";
+import { Button, Card, Panel, Input, PageHeader, EmptyState, Field, Avatar, StatusDot } from "../components/ui.js";
 import { Dialog, ConfirmDialog, Segmented, useToast } from "@hive/ui";
 import { stagger } from "../lib/motion.js";
 import { cn } from "../lib/cn.js";
@@ -91,7 +91,7 @@ export function MembersPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] px-8 py-6">
+    <Panel width="wide">
       <PageHeader title="Members" subtitle="Everyone in this hive. Share an invite code to link a member's bee." />
 
       <Card className="mb-5 p-3">
@@ -203,7 +203,7 @@ export function MembersPage() {
         description="Permanently deletes their memories, connections, polls, and everything the hive knows about them. This can't be undone."
         confirmLabel="Remove member"
       />
-    </div>
+    </Panel>
   );
 }
 

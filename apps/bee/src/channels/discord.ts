@@ -4,6 +4,12 @@ import { splitMessage, toDiscord, DISCORD_LIMIT } from "./format.js";
 
 // Discord via discord.js v14. DM-only for v1. Requires the Message Content
 // privileged intent enabled in the Discord developer portal.
+
+// Sent automatically when someone joins the operator's server, so members never have to
+// hunt for the bot — it reaches out first. Static (they aren't linked yet), asks for the code.
+const WELCOME =
+  "👋 Hi! I'm your hive bee. To link up, just reply here with your invite code — it looks like **BEE-XXXX** (ask whoever runs the hive if you don't have it). After that, chat with me anytime.";
+
 export class DiscordChannel implements ChannelAdapter {
   readonly kind = "discord" as const;
   private client: Client | null = null;
@@ -13,10 +19,21 @@ export class DiscordChannel implements ChannelAdapter {
 
   async start(onMessage: (msg: InboundMessage, sink: ReplySink) => void): Promise<void> {
     const client = new Client({
-      intents: [GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
+      intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers, // privileged — needed to greet new joiners
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.MessageContent,
+      ],
       partials: [Partials.Channel, Partials.Message],
     });
     this.client = client;
+    // greet new members the moment they join the server — no need to find the bot
+    client.on("guildMemberAdd", (member) => {
+      member.send(WELCOME).catch(() => {
+        // member has DMs off; they can still DM the bot first — nothing to do
+      });
+    });
     client.on("messageCreate", (msg) => {
       if (msg.author.bot) return;
       if (msg.channel.type !== ChannelType.DM) return; // DM-only v1

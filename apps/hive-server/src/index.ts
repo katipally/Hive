@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { openDb } from "./db/db.js";
+import { dedupeWebIdentities } from "./db/repo.js";
 import { initKeystore } from "./crypto/keystore.js";
 import { buildApi } from "./http/api.js";
 import { attachBeeHub } from "./ws/bee-hub.js";
@@ -25,6 +26,10 @@ const DATA_DIR = process.env["HIVE_DATA_DIR"] ?? join(process.cwd(), "hive-data"
 openDb(DATA_DIR);
 initKeystore(DATA_DIR);
 registerPipeline();
+
+// clean up any duplicate web identities left by the old per-browser-id scheme
+const _deduped = dedupeWebIdentities();
+if (_deduped) console.log(`[hive] collapsed ${_deduped} duplicate web identit${_deduped === 1 ? "y" : "ies"}`);
 
 const app = buildApi(VERSION);
 const server = serve({ fetch: app.fetch, port: PORT });

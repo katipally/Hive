@@ -67,7 +67,9 @@ export function setProactive(cfg: Partial<ProactiveConfig>): void {
 // Public "how to reach us" address per channel, so members get a real join link.
 export interface ChannelInfo {
   telegram?: { username: string }; // → t.me/<username>
-  discord?: { inviteUrl: string };
+  // inviteUrl = the operator's server invite (discord.gg/…) members join; botName = the
+  // bot's username so they can find it to DM after joining.
+  discord?: { inviteUrl: string; botName?: string };
 }
 export function getChannelInfo(): ChannelInfo {
   return getJson<ChannelInfo>("channelInfo", {});

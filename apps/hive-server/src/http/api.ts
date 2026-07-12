@@ -10,6 +10,7 @@ import {
   activePairingCode,
   unlinkIdentity,
   listIdentities,
+  memberForCode,
   deleteMember,
 } from "../db/repo.js";
 import { beeOnline, listBees, sendToBee } from "../ws/bee-hub.js";
@@ -135,6 +136,9 @@ export function buildApi(version: string): Hono {
     const channel = c.req.param("channel");
     if (!["telegram", "discord"].includes(channel)) return c.json({ error: "bad channel" }, 400);
     const config = await c.req.json<Record<string, unknown>>();
+    // validate with the provider BEFORE persisting — a rejected token never becomes a channel
+    const check = await validateToken(channel, config);
+    if (!check.ok) return c.json({ error: check.error, field: check.field ?? "botToken" }, 400);
     putSecret(`bee:${beeId}:channel:${channel}`, JSON.stringify(config));
     const pushed = sendToBee(beeId, { type: "channel.config", channel: channel as never, config });
     await captureChannelInfo(channel, config); // record the public join address
@@ -165,6 +169,16 @@ export function buildApi(version: string): Hono {
       }
     }
     return c.json(getChannelInfo());
+  });
+
+  // Which channels a member has actually linked (for the "connected here" badges in the
+  // bee UI). Keyed by the member's own invite code so the bee can passthrough without
+  // needing member ids. Web is always available (that's where they're asking from).
+  app.get("/api/member-channels", (c) => {
+    const code = c.req.query("code");
+    const memberId = code ? memberForCode(code) : null;
+    const linked = memberId ? new Set(listIdentities(memberId).map((ci) => ci.channel)) : new Set<string>();
+    return c.json({ web: true, telegram: linked.has("telegram"), discord: linked.has("discord") });
   });
 
   // ---- providers / keys ----
@@ -413,8 +427,42 @@ export function buildApi(version: string): Hono {
   return app;
 }
 
-// Record how members can reach a channel: Telegram's @username (from getMe),
-// or a Discord bot invite (derived from the token).
+// Verify a bot token with the provider BEFORE we persist it, so an invalid token is
+// never saved as a usable channel (and never offered to members). Returns a structured
+// result the HTTP layer turns into an inline field error.
+const DISCORD_INVITE_RE = /(?:discord\.gg\/|discord(?:app)?\.com\/invite\/)([A-Za-z0-9-]+)/;
+
+async function validateToken(channel: string, config: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string; field?: string }> {
+  const token = typeof config["botToken"] === "string" ? (config["botToken"] as string).trim() : "";
+  if (!token) return { ok: false, error: "Paste the bot token first.", field: "botToken" };
+  try {
+    if (channel === "telegram") {
+      const me = (await fetch(`https://api.telegram.org/bot${token}/getMe`).then((r) => r.json())) as { ok?: boolean };
+      if (!me?.ok) return { ok: false, error: "Telegram rejected that token. Copy a fresh one from @BotFather and try again.", field: "botToken" };
+      return { ok: true };
+    }
+    if (channel === "discord") {
+      const res = await fetch("https://discord.com/api/v10/users/@me", { headers: { Authorization: `Bot ${token}` } });
+      if (!res.ok) return { ok: false, error: "Discord rejected that token. Reset the token in the dev portal and paste the new one.", field: "botToken" };
+      // members can only DM the bot if they share a server, so the operator must give a
+      // server invite for them to join — validate it's a real, current invite.
+      const invite = typeof config["serverInvite"] === "string" ? (config["serverInvite"] as string).trim() : "";
+      const m = invite.match(DISCORD_INVITE_RE);
+      if (!m) return { ok: false, error: "Add a server invite link (like discord.gg/abc123) so members can join and DM the bot.", field: "serverInvite" };
+      try {
+        const ir = await fetch(`https://discord.com/api/v10/invites/${m[1]}`);
+        if (!ir.ok) return { ok: false, error: "That server invite is invalid or expired. Make one that never expires and paste it.", field: "serverInvite" };
+      } catch { /* network hiccup — accept the well-formed invite rather than block */ }
+      return { ok: true };
+    }
+    return { ok: false, error: "Unknown channel." };
+  } catch {
+    return { ok: false, error: "Couldn't reach the provider to verify. Check your connection and retry." };
+  }
+}
+
+// Record how members reach a channel: Telegram's @username (from getMe), or for Discord
+// the operator's server invite + the bot's name (so members join the server, then DM it).
 async function captureChannelInfo(channel: string, config: Record<string, unknown>): Promise<void> {
   const token = typeof config["botToken"] === "string" ? (config["botToken"] as string) : "";
   if (channel === "telegram" && token) {
@@ -427,11 +475,14 @@ async function captureChannelInfo(channel: string, config: Record<string, unknow
       /* couldn't reach Telegram now — the token still works; link can be re-fetched */
     }
   } else if (channel === "discord" && token) {
-    const clientId = discordClientId(token);
-    if (clientId)
-      setChannelInfo({
-        discord: { inviteUrl: `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot&permissions=274877975552` },
-      });
+    const invite = typeof config["serverInvite"] === "string" ? (config["serverInvite"] as string).trim() : "";
+    if (!invite) return;
+    let botName: string | undefined;
+    try {
+      const me = (await fetch("https://discord.com/api/v10/users/@me", { headers: { Authorization: `Bot ${token}` } }).then((r) => r.json())) as { username?: string };
+      botName = me?.username;
+    } catch { /* keep the invite even if we can't read the bot name */ }
+    setChannelInfo({ discord: { inviteUrl: invite, botName } });
   }
 }
 
@@ -439,16 +490,6 @@ function safeJson(s: string | null): Record<string, unknown> | null {
   if (!s) return null;
   try {
     return JSON.parse(s) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-// The first segment of a Discord bot token is the base64-encoded application id.
-function discordClientId(token: string): string | null {
-  try {
-    const id = Buffer.from(token.split(".")[0] ?? "", "base64").toString("utf8").replace(/\D/g, "");
-    return id.length >= 17 ? id : null;
   } catch {
     return null;
   }

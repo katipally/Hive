@@ -1,4 +1,4 @@
-import { useEffect, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { useEffect, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import { Sparkles } from "lucide-react";
 import { cn } from "../lib/cn.js";
 
@@ -31,6 +31,46 @@ export function Card({ className, children }: { className?: string; children: Re
       )}
     >
       {children}
+    </div>
+  );
+}
+
+// The elevated page shell every console page sits in. Owns the wrapper that used to
+// be copy-pasted into each page, plus a readable content column so text/forms don't
+// stretch edge-to-edge on wide monitors. `bleed` = no padding/column (for the graph
+// canvas, which manages its own layout).
+export function Panel({
+  width = "wide",
+  surface = "elevated",
+  className,
+  style,
+  children,
+}: {
+  width?: "prose" | "wide" | "bleed";
+  // "elevated" = floating card (bg-card + shadow); "recessed" = sits behind the main
+  // canvas on the app background (bg-background, no shadow) — like the left sidebar.
+  surface?: "elevated" | "recessed";
+  className?: string;
+  style?: CSSProperties;
+  children: ReactNode;
+}) {
+  const bleed = width === "bleed";
+  const recessed = surface === "recessed";
+  return (
+    <div
+      style={style}
+      className={cn(
+        "relative h-full rounded-2xl border border-border",
+        recessed ? "bg-background" : "bg-card shadow-[var(--shadow-card)]",
+        bleed ? "overflow-hidden" : "overflow-y-auto px-6 py-6 sm:px-8",
+        className,
+      )}
+    >
+      {bleed ? (
+        children
+      ) : (
+        <div className={cn("mx-auto w-full", width === "prose" ? "max-w-3xl" : "max-w-5xl")}>{children}</div>
+      )}
     </div>
   );
 }

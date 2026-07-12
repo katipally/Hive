@@ -79,8 +79,16 @@ export function inspectEntity(entityId: string) {
     | Record<string, unknown>
     | undefined;
   if (!entity) return null;
+  // join the neighbour names so the UI can show *what* each relation connects to
+  // (a relation with no other endpoint isn't informative).
   const edges = db
-    .prepare("SELECT * FROM edges WHERE src_entity_id=? OR dst_entity_id=?")
+    .prepare(
+      `SELECT e.*, se.name AS src_name, de.name AS dst_name
+       FROM edges e
+       JOIN entities se ON se.id = e.src_entity_id
+       JOIN entities de ON de.id = e.dst_entity_id
+       WHERE e.src_entity_id=? OR e.dst_entity_id=?`,
+    )
     .all(entityId, entityId);
   const memoryIds = new Set<string>();
   for (const e of edges as Record<string, unknown>[])

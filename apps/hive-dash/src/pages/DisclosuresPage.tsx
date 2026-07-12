@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { ShieldCheck, ArrowRight, Check, Ban } from "lucide-react";
 import { api } from "../api.js";
 import { useDashSocket } from "../useDashSocket.js";
-import { PageHeader, Pill, EmptyState } from "../components/ui.js";
+import { PageHeader, Pill, Panel, EmptyState } from "../components/ui.js";
 import { stagger } from "../lib/motion.js";
 import { cn } from "../lib/cn.js";
 
@@ -42,7 +42,7 @@ export function DisclosuresPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] px-8 py-6">
+    <Panel width="prose">
       <PageHeader
         title="Disclosure audit"
         subtitle="Every time knowledge crossed between members — and what the hive chose to hold back."
@@ -109,6 +109,6 @@ export function DisclosuresPage() {
           ))}
         </div>
       )}
-    </div>
+    </Panel>
   );
 }

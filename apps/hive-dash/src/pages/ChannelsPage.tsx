@@ -1,56 +1,63 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion } from "motion/react";
-import { Send, Hash, Globe, Check, X, Loader2 } from "lucide-react";
-import { api, type BeeRow, type ChannelInfo } from "../api.js";
-import { PageHeader, Card, Input, Button, Pill, StatusDot } from "../components/ui.js";
+import { AnimatePresence, motion } from "motion/react";
+import { Send, Hash, Globe, Check, X, Loader2, ChevronDown, ExternalLink } from "lucide-react";
+import { api, ApiError, type BeeRow, type ChannelInfo } from "../api.js";
+import { PageHeader, Card, Panel, Input, Button, Pill, StatusDot } from "../components/ui.js";
 import { useToast } from "@hive/ui";
-import { stagger } from "../lib/motion.js";
+import { cn } from "../lib/cn.js";
 
 type Health = Record<string, { configured: boolean; running: boolean; detail?: string }>;
+type Field = { key: string; placeholder: string; type?: "text" | "password" };
 
-// One-time operator setup. Channels run on the hive's PRIMARY bee; every member
-// then connects to the same bots by sending their invite code. Not per-member.
-const CHANNELS = [
+// One-time operator setup. Channels run on the hive's PRIMARY bee; every member then
+// connects to the same bots by sending their invite code (BEE-XXXX). Not per-member.
+// Steps are kept concise-but-complete: everything needed, nothing more.
+const CHANNELS: {
+  id: string;
+  label: string;
+  Icon: typeof Send;
+  note?: string;
+  steps: string[];
+  fields: Field[];
+}[] = [
   {
     id: "telegram",
     label: "Telegram",
     Icon: Send,
-    hint: "Bot token from @BotFather (looks like 123456:ABC-DEF…)",
-    connect: "Members open this Telegram bot and send their invite code (BEE-XXXX).",
     steps: [
-      "In Telegram, search @BotFather (blue check) and tap Start.",
-      "Send /newbot → pick a name → pick a username ending in “bot”.",
-      "Copy the token BotFather gives you (123456:ABC-DEF…).",
-      "Paste it below and press Connect.",
+      "In Telegram open @BotFather → send /newbot → pick a name, then a username ending in “bot”.",
+      "Copy the token it gives you, paste it below, and press Connect.",
     ],
+    fields: [{ key: "botToken", placeholder: "Bot token from @BotFather (123456:ABC-DEF…)", type: "password" }],
   },
   {
     id: "discord",
     label: "Discord",
     Icon: Hash,
-    hint: "Bot token — Message Content Intent must be ON",
-    connect: "Invite each member to your private server, then they DM the bot their invite code (BEE-XXXX).",
-    note: "Discord only lets a bot DM someone who shares a server with it — so you make one private server, invite the bot AND your members to it, and the actual chatting still happens in DMs.",
+    note: "Discord only lets a bot DM people who share a server with it — so members join one server and the bot DMs them to link. That's why you add a server invite below.",
     steps: [
-      "Open discord.com/developers/applications → New Application → name it → Create.",
-      "Left menu → Bot → turn ON “Message Content Intent” (Privileged Gateway Intents) → Save.",
-      "Reset Token → Copy it.",
-      "In Discord, click the + in your server list → “Create My Own” → make a private server (this is required — a bot can only DM people who share a server with it).",
-      "Back in the dev portal: OAuth2 → URL Generator → tick scope “bot” → open the link → add the bot to that private server.",
-      "Invite the people who’ll use it to that same server.",
-      "Paste the token below and press Connect. Members then DM the bot “BEE-XXXX”.",
+      "discord.com/developers/applications → New Application → open Bot → turn on BOTH “Message Content Intent” and “Server Members Intent” → Reset Token → copy it.",
+      "OAuth2 → URL Generator → tick scope “bot” → open that link → add the bot to a server (make a new one if you don't have it).",
+      "In that server: Invite People → Edit invite link → set it to never expire → copy the discord.gg link.",
+      "Paste the bot token and the server invite below → Connect.",
+    ],
+    fields: [
+      { key: "botToken", placeholder: "Bot token (Reset Token in the dev portal)", type: "password" },
+      { key: "serverInvite", placeholder: "Server invite link (discord.gg/…)", type: "text" },
     ],
   },
-] as const;
+];
 
 export function ChannelsPage() {
   const toast = useToast();
   const [bees, setBees] = useState<BeeRow[]>([]);
   const [health, setHealth] = useState<Health>({});
   const [chInfo, setChInfo] = useState<ChannelInfo>({});
-  const [tokens, setTokens] = useState<Record<string, string>>({});
+  const [inputs, setInputs] = useState<Record<string, Record<string, string>>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [verifying, setVerifying] = useState<string | null>(null);
+  const [starting, setStarting] = useState<string | null>(null); // auto-poll after connect
+  const [openId, setOpenId] = useState<string | null>(null); // single-open accordion
+  const [errors, setErrors] = useState<Record<string, { msg: string; field?: string }>>({});
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = async () => {
@@ -62,15 +69,8 @@ export function ChannelsPage() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
-  // The address members use to reach this channel (shown once it's live).
-  const joinAddress = (id: string): string | null => {
-    if (id === "telegram" && chInfo.telegram?.username) return `https://t.me/${chInfo.telegram.username}`;
-    if (id === "discord" && chInfo.discord?.inviteUrl) return chInfo.discord.inviteUrl;
-    return null;
-  };
-
-  // The canonical hive bee (server-designated: the oldest/first-registered bee) hosts
-  // the shared channel bots. Deterministic — no guessing, no flipping between bees.
+  // The canonical hive bee (server-designated: the oldest/first-registered bee) hosts the
+  // shared channel bots. Deterministic — no guessing, no flipping between bees.
   const primary = bees.find((b) => b.primary) ?? bees[0] ?? null;
 
   const refreshHealth = useCallback(async (beeId?: string) => {
@@ -83,10 +83,11 @@ export function ChannelsPage() {
   }, []);
   useEffect(() => { refreshHealth(primary?.beeId); }, [primary?.beeId, refreshHealth]);
 
-  // Poll health so status reflects the adapter actually coming up (or failing).
-  function verify(channel: string) {
+  // After a successful Connect the token is already validated, so we just wait for the
+  // adapter to come up — a short automatic poll, no manual "check status" button.
+  function awaitLive(channel: string) {
     if (!primary) return;
-    setVerifying(channel);
+    setStarting(channel);
     let tries = 0;
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
@@ -96,43 +97,92 @@ export function ChannelsPage() {
       if (h[channel]?.running || tries >= 6) {
         clearInterval(pollRef.current!);
         pollRef.current = null;
-        setVerifying(null);
-        if (!h[channel]?.running) toast("Not live yet — check the token / Message Content intent, then press Check status", "error");
+        setStarting(null);
       }
     }, 1500);
   }
 
-  async function connect(channel: string, config: Record<string, unknown>, label: string) {
+  const field = (ch: string, key: string) => inputs[ch]?.[key] ?? "";
+  const setField = (ch: string, key: string, val: string) =>
+    setInputs((p) => ({ ...p, [ch]: { ...p[ch], [key]: val } }));
+  const ready = (c: (typeof CHANNELS)[number]) => c.fields.every((f) => field(c.id, f.key).trim());
+
+  // The address members use to reach a channel once it's live.
+  const joinAddress = (id: string): string | null => {
+    if (id === "telegram" && chInfo.telegram?.username) return `https://t.me/${chInfo.telegram.username}`;
+    if (id === "discord" && chInfo.discord?.inviteUrl) return chInfo.discord.inviteUrl;
+    return null;
+  };
+
+  async function connect(c: (typeof CHANNELS)[number]) {
     if (!primary) return;
-    setBusy(channel);
+    const config: Record<string, string> = {};
+    for (const f of c.fields) config[f.key] = field(c.id, f.key).trim();
+    setBusy(c.id);
+    setErrors((e) => ({ ...e, [c.id]: { msg: "" } }));
     try {
-      await api(`/api/bees/${primary.beeId}/channels/${channel}`, { method: "PUT", body: JSON.stringify(config) });
-      toast(`${label} saved — verifying…`);
-      setTokens((t) => ({ ...t, [channel]: "" }));
+      await api(`/api/bees/${primary.beeId}/channels/${c.id}`, { method: "PUT", body: JSON.stringify(config) });
+      toast(`${c.label} connected`);
+      setInputs((p) => ({ ...p, [c.id]: {} }));
       await load();
-      verify(channel);
+      awaitLive(c.id);
     } catch (e) {
-      toast(`Couldn't connect ${label}: ${(e as Error).message}`, "error");
+      // server rejected the token/invite before saving anything — show it inline by field
+      setErrors((p) => ({
+        ...p,
+        [c.id]: { msg: e instanceof ApiError ? e.message : `Couldn't connect ${c.label}.`, field: e instanceof ApiError ? e.field : undefined },
+      }));
     } finally {
       setBusy(null);
     }
   }
 
-  async function disconnect(channel: string, label: string) {
+  async function disconnect(c: (typeof CHANNELS)[number]) {
     if (!primary) return;
-    setBusy(channel);
+    setBusy(c.id);
     try {
-      await api(`/api/bees/${primary.beeId}/channels/${channel}`, { method: "DELETE" });
-      toast(`${label} disconnected`);
+      await api(`/api/bees/${primary.beeId}/channels/${c.id}`, { method: "DELETE" });
+      toast(`${c.label} disconnected`);
+      setErrors((e) => ({ ...e, [c.id]: { msg: "" } }));
       await load();
       await refreshHealth(primary.beeId);
+    } catch (e) {
+      toast(`Couldn't disconnect ${c.label}: ${(e as Error).message}`, "error");
     } finally {
       setBusy(null);
     }
+  }
+
+  // What a member does to reach this channel, shown once it's live.
+  function MemberJoin({ id }: { id: string }) {
+    const addr = joinAddress(id);
+    if (id === "telegram") {
+      return (
+        <div className="rounded-lg bg-share/10 px-3.5 py-2.5 text-[13px] text-fg">
+          <span className="font-medium">Members join by </span>opening the bot and sending their invite code.
+          {addr && (
+            <a href={addr} target="_blank" rel="noreferrer" className="mt-1 flex items-center gap-1 break-all font-mono text-[12px] text-accent hover:underline">
+              {addr} <ExternalLink size={11} />
+            </a>
+          )}
+        </div>
+      );
+    }
+    // discord
+    return (
+      <div className="rounded-lg bg-share/10 px-3.5 py-2.5 text-[13px] text-fg">
+        <span className="font-medium">Members join </span>your server and the bot DMs them automatically — they just reply with their invite code (no need to find the bot).
+        {addr && (
+          <a href={addr} target="_blank" rel="noreferrer" className="mt-1 flex items-center gap-1 break-all font-mono text-[12px] text-accent hover:underline">
+            {addr} <ExternalLink size={11} />
+          </a>
+        )}
+      </div>
+    );
   }
 
   return (
-    <div className="h-full overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] px-8 py-6">
+    <Panel width="prose">
       <PageHeader
         title="Channels"
         subtitle="One-time setup. Connect the shared bots once — then every member joins by sending their invite code."
@@ -152,90 +202,114 @@ export function ChannelsPage() {
             {bees.length > 1 && <span className="text-faint">· {bees.length} bees total</span>}
           </div>
 
-          <div className="mb-3 flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">
-            <Globe size={16} className="text-muted" />
-            <span className="text-[13px] font-medium text-fg">Web chat</span>
-            <Pill tone="share">always on</Pill>
-            <span className="ml-auto text-[12px] text-faint">Open the web chat and paste an invite code.</span>
-          </div>
+          <div className="flex flex-col gap-2">
+            {/* Web chat — always on, nothing to set up. */}
+            <Card className="flex items-center gap-2.5 px-4 py-3">
+              <Globe size={16} className="text-muted" />
+              <span className="text-[14px] font-semibold text-fg">Web chat</span>
+              <Pill tone="share">always on</Pill>
+              <span className="ml-auto hidden text-[12px] text-faint sm:inline">Members open the web chat and paste their invite code.</span>
+            </Card>
 
-          <div className="flex flex-col gap-3">
-            {CHANNELS.map((ch, i) => {
-              const h = health[ch.id];
+            {CHANNELS.map((c) => {
+              const h = health[c.id];
               const running = !!h?.running;
-              const configured = h?.configured ?? primary.channels.includes(ch.id);
+              const configured = h?.configured ?? primary.channels.includes(c.id);
+              const open = openId === c.id;
+              const err = errors[c.id]?.msg;
+              const status = running ? "connected" : configured ? "needs attention" : "not set up";
+              const tone = running ? "share" : configured ? "partial" : "muted";
               return (
-                <motion.div key={ch.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={stagger(i)}>
-                  <Card className="p-4">
-                    <div className="flex items-center gap-2.5">
-                      <ch.Icon size={17} className="text-accent" />
-                      <span className="text-[15px] font-semibold text-fg">{ch.label}</span>
-                      {running ? (
-                        <Pill tone="share">connected</Pill>
-                      ) : configured ? (
-                        <Pill tone="partial">saved · not live</Pill>
-                      ) : (
-                        <Pill tone="muted">not set up</Pill>
-                      )}
-                      {configured && (
-                        <Button variant="subtle" className="ml-auto" disabled={busy === ch.id} onClick={() => disconnect(ch.id, ch.label)}>
-                          <X size={13} /> Disconnect
-                        </Button>
-                      )}
-                    </div>
+                <Card key={c.id} className="overflow-hidden">
+                  <button
+                    onClick={() => setOpenId(open ? null : c.id)}
+                    aria-expanded={open}
+                    className="flex w-full items-center gap-2.5 px-4 py-3 text-left transition hover:bg-fg/[0.02]"
+                  >
+                    <c.Icon size={17} className="text-accent" />
+                    <span className="text-[14px] font-semibold text-fg">{c.label}</span>
+                    <Pill tone={tone as "share" | "partial" | "muted"}>{status}</Pill>
+                    <span className="ml-auto flex items-center gap-1.5 text-[12px] font-medium text-muted">
+                      {configured ? "Manage" : "Set up"}
+                      <ChevronDown size={15} className={cn("transition-transform", open && "rotate-180")} />
+                    </span>
+                  </button>
 
-                    {running ? (
-                      <div className="mt-2.5 rounded-lg bg-share/10 px-3.5 py-2.5 text-[13px] text-fg">
-                        <span className="font-medium">How members join: </span>
-                        {ch.connect}
-                        {joinAddress(ch.id) && <div className="mt-1 break-all font-mono text-[12px] text-accent">{joinAddress(ch.id)}</div>}
-                      </div>
-                    ) : (
-                      <>
-                        {"note" in ch && ch.note && (
-                          <p className="mt-2.5 rounded-lg bg-accent-soft/40 px-3 py-2 text-[12px] leading-relaxed text-muted">{ch.note}</p>
-                        )}
-                        <ol className="mt-2.5 flex flex-col gap-1.5">
-                          {ch.steps.map((s, si) => (
-                            <li key={si} className="flex gap-2.5 text-[12.5px] leading-relaxed text-muted">
-                              <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-accent-soft text-[10px] font-semibold text-accent">{si + 1}</span>
-                              <span>{s}</span>
-                            </li>
-                          ))}
-                        </ol>
-                        <div className="mt-3 flex items-center gap-2">
-                          <Input
-                            type="password"
-                            placeholder={ch.hint}
-                            value={tokens[ch.id] ?? ""}
-                            onChange={(e) => setTokens((t) => ({ ...t, [ch.id]: e.target.value }))}
-                            onKeyDown={(e) => { if (e.key === "Enter" && tokens[ch.id]?.trim()) connect(ch.id, { botToken: tokens[ch.id]!.trim() }, ch.label); }}
-                          />
-                          <Button
-                            variant="primary"
-                            disabled={busy === ch.id || verifying === ch.id || (!tokens[ch.id]?.trim() && !configured)}
-                            onClick={() => (tokens[ch.id]?.trim() ? connect(ch.id, { botToken: tokens[ch.id]!.trim() }, ch.label) : verify(ch.id))}
-                          >
-                            {verifying === ch.id ? (
-                              <><Loader2 size={14} className="animate-spin" /> checking…</>
-                            ) : tokens[ch.id]?.trim() ? (
-                              <><Check size={14} /> Connect</>
-                            ) : (
-                              <><Check size={14} /> Check status</>
-                            )}
-                          </Button>
+                  <AnimatePresence initial={false}>
+                    {open && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                        className="overflow-hidden"
+                      >
+                        <div className="flex flex-col gap-3 border-t border-border px-4 py-3.5">
+                          {running ? (
+                            <MemberJoin id={c.id} />
+                          ) : (
+                            <>
+                              {starting === c.id ? (
+                                <p className="flex items-center gap-2 text-[12.5px] text-partial">
+                                  <Loader2 size={14} className="animate-spin" /> Starting the bot…
+                                </p>
+                              ) : configured ? (
+                                <p className="text-[12.5px] text-partial">Saved, but the bot isn't live. Re-enter the details below to reconnect, or disconnect it.</p>
+                              ) : null}
+
+                              {c.note && (
+                                <p className="rounded-lg bg-accent-soft/40 px-3 py-2 text-[12px] leading-relaxed text-muted">{c.note}</p>
+                              )}
+                              <ol className="flex flex-col gap-1.5">
+                                {c.steps.map((s, si) => (
+                                  <li key={si} className="flex gap-2.5 text-[12.5px] leading-relaxed text-muted">
+                                    <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-accent-soft text-[10px] font-semibold text-accent">{si + 1}</span>
+                                    <span>{s}</span>
+                                  </li>
+                                ))}
+                              </ol>
+
+                              <div className="flex flex-col gap-2">
+                                {c.fields.map((f) => (
+                                  <Input
+                                    key={f.key}
+                                    type={f.type ?? "text"}
+                                    placeholder={f.placeholder}
+                                    className={errors[c.id]?.field === f.key ? "border-withhold/60 focus:border-withhold" : undefined}
+                                    value={field(c.id, f.key)}
+                                    onChange={(e) => { setField(c.id, f.key, e.target.value); if (err) setErrors((x) => ({ ...x, [c.id]: { msg: "" } })); }}
+                                    onKeyDown={(e) => { if (e.key === "Enter" && ready(c)) connect(c); }}
+                                  />
+                                ))}
+                              </div>
+
+                              {err && <p className="text-[12px] text-withhold">{err}</p>}
+
+                              <div className="flex items-center gap-2">
+                                <Button variant="primary" disabled={busy === c.id || !ready(c)} onClick={() => connect(c)}>
+                                  {busy === c.id ? <><Loader2 size={14} className="animate-spin" /> connecting…</> : <><Check size={14} /> {configured ? "Reconnect" : "Connect"}</>}
+                                </Button>
+                              </div>
+                            </>
+                          )}
+
+                          {configured && (
+                            <div className="border-t border-border pt-3">
+                              <Button variant="subtle" disabled={busy === c.id} onClick={() => disconnect(c)}>
+                                <X size={13} /> Disconnect
+                              </Button>
+                            </div>
+                          )}
                         </div>
-                        {configured && <p className="mt-2 text-[12px] text-partial">Saved, but the bot isn't live yet — {ch.id === "discord" ? "check the token and that Message Content Intent is ON" : "check the token"}, then press Check status.</p>}
-                        {h?.detail && <p className="mt-1 text-[12px] text-withhold">{h.detail}</p>}
-                      </>
+                      </motion.div>
                     )}
-                  </Card>
-                </motion.div>
+                  </AnimatePresence>
+                </Card>
               );
             })}
           </div>
         </>
       )}
-    </div>
+    </Panel>
   );
 }

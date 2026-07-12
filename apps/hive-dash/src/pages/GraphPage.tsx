@@ -9,8 +9,10 @@ import { useDashSocket } from "../useDashSocket.js";
 import { NODE_COLORS, NODE_LABEL } from "../lib/palette.js";
 import { cn } from "../lib/cn.js";
 import { panel } from "../lib/motion.js";
-import { Pill } from "../components/ui.js";
+import { Pill, Panel } from "../components/ui.js";
 import { ConfirmDialog, useToast } from "@hive/ui";
+import { Resizer } from "../components/Resizer.js";
+import { usePersistentNumber } from "../lib/uiState.js";
 
 interface GNode {
   id: string;
@@ -39,7 +41,8 @@ interface MemberLite {
 
 const TYPES = Object.keys(NODE_COLORS);
 const idOf = (x: string | GNode) => (typeof x === "string" ? x : x.id);
-const HUB_COUNT = 12; // always-label the N most-connected nodes so the graph is readable at rest
+const HUB_COUNT = 18; // always-label the N most-connected nodes so the graph is readable at rest
+const LABEL_ALL_BELOW = 55; // small graphs: just name every node — no mush risk, max readability
 
 export function GraphPage() {
   const [graph, setGraph] = useState<Graph>({ nodes: [], links: [] });
@@ -56,6 +59,7 @@ export function GraphPage() {
   const [detail, setDetail] = useState<any>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [railW, setRailW] = usePersistentNumber("hive-graph-rail-w", 340);
 
   const fgRef = useRef<any>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -151,11 +155,12 @@ export function GraphPage() {
   );
 
   const selId = selected?.id ?? null;
-  // a node gets an in-scene name label if: it's a hub, it's selected, it neighbours the
-  // selection, or it matches the search — everything else stays a clean dot (no mush).
+  const labelAll = data.nodes.length <= LABEL_ALL_BELOW;
+  // a node gets an in-scene name label if the graph is small (label everything), or it's a
+  // hub / selected / neighbours the selection / matches the search — else it stays a clean dot.
   const labelled = useCallback(
-    (id: string) => hubIds.has(id) || id === selId || (selId != null && (adj.get(selId)?.has(id) ?? false)) || matches.has(id),
-    [hubIds, selId, adj, matches],
+    (id: string) => labelAll || hubIds.has(id) || id === selId || (selId != null && (adj.get(selId)?.has(id) ?? false)) || matches.has(id),
+    [labelAll, hubIds, selId, adj, matches],
   );
 
   const isDim = useCallback(
@@ -230,7 +235,8 @@ export function GraphPage() {
   const filtersActive = hidden.size > 0 || !!rel || minDegree > 0 || minConf > 0;
 
   return (
-    <div ref={wrapRef} className="relative h-full overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)]">
+    <div className="flex h-full w-full gap-2 overflow-hidden">
+      <div ref={wrapRef} className="relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)]">
       {/* toolbar */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start gap-3 p-4">
         <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-border bg-popover/80 px-3 py-2 shadow-lg backdrop-blur-md">
@@ -402,7 +408,7 @@ export function GraphPage() {
           showNavInfo={false}
           nodeRelSize={5}
           nodeVal={(n: any) => n.val}
-          nodeLabel={(n: any) => n.name}
+          nodeLabel={(n: any) => `${n.name} · ${n.type} · ${n.val} ${n.val === 1 ? "connection" : "connections"}`}
           cooldownTime={4000}
           warmupTicks={40}
           enableNodeDrag={false}
@@ -422,10 +428,15 @@ export function GraphPage() {
             s.textHeight = focus ? 5 : 3.6;
             s.fontFace = "Geist Variable, sans-serif";
             s.backgroundColor = dim ? "rgba(0,0,0,0)" : focus ? "rgba(91,157,255,0.2)" : "rgba(16,16,18,0.72)";
-            s.padding = dim ? 0 : 2;
-            s.borderRadius = 3;
+            s.padding = dim ? 1 : 3;
+            s.borderRadius = 4;
+            // Draw the name on top of geometry so the node sphere never clips/cuts it off,
+            // and float it just clear of the node radius (nodeRelSize=5 → r ≈ 5·∛val).
             (s as any).material.depthWrite = false;
-            s.position.y = -(3 + Math.sqrt(n.val) * 2.2);
+            (s as any).material.depthTest = false;
+            s.renderOrder = 10;
+            const r = 5 * Math.cbrt(Math.max(n.val, 1));
+            s.position.y = r + s.textHeight * 0.5 + 1.8;
             return s;
           }}
           linkThreeObjectExtend
@@ -438,9 +449,11 @@ export function GraphPage() {
             s.textHeight = 2.4;
             s.fontFace = "Geist Variable, sans-serif";
             s.backgroundColor = "rgba(16,16,18,0.6)";
-            s.padding = 1.2;
+            s.padding = 1.6;
             s.borderRadius = 2;
             (s as any).material.depthWrite = false;
+            (s as any).material.depthTest = false;
+            s.renderOrder = 11;
             return s;
           }}
           linkPositionUpdate={(sprite: any, { start, end }: any) => {
@@ -482,22 +495,33 @@ export function GraphPage() {
           </div>
         </div>
       )}
+      </div>
 
-      <AnimatePresence>
-        {selected && (
-          <motion.aside
+      {/* Detail — a recessed right rail that sits behind the graph canvas (not a floating
+          overlay), opening when a node is selected. Resizable; slides shut on deselect. */}
+      <div
+        className="relative shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
+        style={{ width: selected ? railW : 0 }}
+      >
+      <Panel surface="recessed" width="bleed" className="flex h-full flex-col" style={{ width: railW }}>
+        <AnimatePresence mode="wait">
+          {selected && (
+          <motion.div
+            key={selected.id}
             variants={panel}
             initial="hidden"
             animate="show"
             exit="exit"
-            className="absolute bottom-3 right-3 top-3 z-20 w-[340px] overflow-y-auto rounded-2xl border border-border bg-elevated/95 p-5 shadow-[var(--shadow-pop)] backdrop-blur-xl"
+            className="flex h-full flex-col overflow-y-auto p-5"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <span className="mt-1 size-3 shrink-0 rounded-full" style={{ background: NODE_COLORS[selected.type] }} />
                 <div>
                   <h2 className="text-[17px] font-semibold leading-tight text-fg">{selected.name}</h2>
-                  <span className="text-[12px] capitalize text-muted">{selected.type}</span>
+                  <span className="text-[12px] capitalize text-muted">
+                    {selected.type} · {selected.val} {selected.val === 1 ? "connection" : "connections"}
+                  </span>
                 </div>
               </div>
               <button onClick={() => setSelected(null)} className="text-faint transition hover:text-fg"><X size={16} /></button>
@@ -530,15 +554,25 @@ export function GraphPage() {
 
                 <Section label="Relations" count={detail?.edges?.length ?? 0} />
                 <div className="space-y-1.5">
-                  {(detail?.edges ?? []).map((e: any) => (
-                    <div key={e.id} className={cn("rounded-lg border border-border bg-card px-3 py-2 text-[13px]", e.invalidated_at && "opacity-45")}>
-                      <span className="font-mono text-accent/90">{e.rel}</span>
-                      <div className="mt-0.5 flex items-center gap-2 text-[11px] text-faint">
-                        <span>confidence {Number(e.confidence).toFixed(2)}</span>
-                        {e.invalidated_at && <Pill tone="withhold">past</Pill>}
+                  {(detail?.edges ?? []).map((e: any) => {
+                    // show the relation with its other endpoint + direction, so the row
+                    // reads like a sentence: "→ works_at → Acme".
+                    const outgoing = e.src_entity_id === selected.id;
+                    const other = outgoing ? e.dst_name : e.src_name;
+                    return (
+                      <div key={e.id} className={cn("rounded-lg border border-border bg-card px-3 py-2 text-[13px]", e.invalidated_at && "opacity-45")}>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-faint">{outgoing ? "→" : "←"}</span>
+                          <span className="font-mono text-accent/90">{String(e.rel).replace(/_/g, " ")}</span>
+                          {other && <span className="truncate font-medium text-fg">{other}</span>}
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-faint">
+                          <span>confidence {Number(e.confidence).toFixed(2)}</span>
+                          {e.invalidated_at && <Pill tone="withhold">past</Pill>}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {(detail?.edges ?? []).length === 0 && <p className="text-[12px] text-faint">No relations yet.</p>}
                 </div>
 
@@ -563,9 +597,12 @@ export function GraphPage() {
                 </div>
               </>
             )}
-          </motion.aside>
-        )}
-      </AnimatePresence>
+          </motion.div>
+          )}
+        </AnimatePresence>
+      </Panel>
+        {selected && <Resizer edge="left" width={railW} min={280} max={520} onChange={setRailW} />}
+      </div>
 
       <ConfirmDialog
         open={!!confirm}

@@ -1,9 +1,25 @@
+// Error thrown by api() on a non-2xx response, carrying the server's structured
+// { error, field } so callers can show it inline instead of a generic toast.
+export class ApiError extends Error {
+  field?: string;
+  status: number;
+  constructor(message: string, status: number, field?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.field = field;
+  }
+}
+
 export async function api<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...opts,
     headers: { "content-type": "application/json", ...(opts?.headers ?? {}) },
   });
-  if (!res.ok) throw new Error(`${path} ${res.status}`);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string; field?: string } | null;
+    throw new ApiError(body?.error ?? `${path} ${res.status}`, res.status, body?.field);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -27,7 +43,7 @@ export interface MemberRow {
 
 export interface ChannelInfo {
   telegram?: { username: string };
-  discord?: { inviteUrl: string };
+  discord?: { inviteUrl: string; botName?: string };
 }
 
 export interface BeeRow {

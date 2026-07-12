@@ -213,6 +213,22 @@ export class Bee {
     return linked;
   }
 
+  // HTTP pairing for the web "+ add profile via code" flow: links this web uid to the
+  // code's member and caches it, without routing through a chat message. Returns the
+  // member name so the UI can auto-name the profile.
+  async pairWeb(uid: string, code: string): Promise<{ ok: boolean; name?: string; error?: string }> {
+    let r;
+    try {
+      r = await this.link.pair("web", uid, null, code);
+    } catch {
+      return { ok: false, error: "Can't reach the hive right now — try again in a moment." };
+    }
+    if (!r.ok || !r.memberId || !r.channelIdentityId) return { ok: false, error: r.error ?? "That code didn't work." };
+    const linked: Linked = { memberId: r.memberId, memberName: r.memberName ?? "friend", channelIdentityId: r.channelIdentityId };
+    this.cache.set(this.key("web", uid), linked);
+    return { ok: true, name: linked.memberName };
+  }
+
   // /logout — unlink just THIS channel identity on the hive, then forget it locally.
   // Other channels and the member's memory are untouched.
   private async unlink(channel: ChannelKind, externalId: string, sink: ReplySink): Promise<void> {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { KeyRound, Check, Trash2, RefreshCw, ShieldAlert, MessageSquare, Search, Sparkles, Zap } from "lucide-react";
 import { api, type ProviderRow, type ModelRow, type SettingsData } from "../api.js";
-import { PageHeader, Card, Input, Button, Field } from "../components/ui.js";
+import { PageHeader, Card, Panel, Input, Button, Field } from "../components/ui.js";
 import { Segmented, useToast, type SegOption } from "@hive/ui";
 import { cn } from "../lib/cn.js";
 
@@ -78,19 +78,19 @@ export function SettingsPage() {
 
   if (!settings) {
     return (
-      <div className="mx-auto h-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] px-8 py-6">
+      <Panel width="prose">
         <div className="skeleton mb-4 h-8 w-48 rounded-lg" />
         <div className="flex flex-col gap-3">
           {Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-28 rounded-2xl" />)}
         </div>
-      </div>
+      </Panel>
     );
   }
 
   const active = providers.find((p) => p.id === activeProvider);
 
   return (
-    <div className="mx-auto h-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] px-8 py-6">
+    <Panel width="prose">
       <PageHeader title="Settings" subtitle="Bring your own models. Keys are encrypted at rest; only the last 4 digits are ever shown." />
 
       {/* providers & keys — pick a provider, configure its key */}
@@ -217,7 +217,7 @@ export function SettingsPage() {
         </div>
       </Card>
       <div className="h-10" />
-    </div>
+    </Panel>
   );
 }
 

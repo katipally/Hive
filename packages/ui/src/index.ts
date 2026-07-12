@@ -5,7 +5,7 @@ export * from "./lib/motion.js";
 
 export { HexMark } from "./components/HexMark.js";
 export {
-  Button, Card, Input, Select, Field, Pill, Mono, EmptyState, PageHeader, SkeletonRows,
+  Button, Card, Panel, Input, Select, Field, Pill, Mono, EmptyState, PageHeader, SkeletonRows,
   Thinking, StatusDot, Avatar,
 } from "./components/ui.js";
 export { Dialog, ConfirmDialog } from "./components/Dialog.js";

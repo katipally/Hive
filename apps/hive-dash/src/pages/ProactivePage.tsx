@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Zap, Check, X, Activity, Users, Sparkles, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Zap, Check, X, Activity, Users, Sparkles, ThumbsUp, ThumbsDown, PanelRightClose } from "lucide-react";
 import { api } from "../api.js";
 import { useDashSocket } from "../useDashSocket.js";
-import { PageHeader, Pill, Button, EmptyState } from "../components/ui.js";
+import { PageHeader, Pill, Panel, Button, EmptyState } from "../components/ui.js";
 import { stagger } from "../lib/motion.js";
 import { cn } from "../lib/cn.js";
+import { Resizer } from "../components/Resizer.js";
+import { usePersistentNumber, usePersistentBool } from "../lib/uiState.js";
 
 interface Nudge {
   id: string;
@@ -70,6 +72,8 @@ export function ProactivePage() {
   const [names, setNames] = useState<Record<string, string>>({});
   const [shared, setShared] = useState<{ entity: string; type: string; members: string[] }[]>([]);
   const [orchestrating, setOrchestrating] = useState(false);
+  const [railW, setRailW] = usePersistentNumber("hive-proactive-rail-w", 340);
+  const [railOpen, , toggleRail] = usePersistentBool("hive-proactive-rail-open", true);
 
   const loadNudges = () => api<Nudge[]>("/api/nudges").then(setNudges).catch(() => {});
   const loadActivity = () => api<ActivityEntry[]>("/api/activity?limit=60").then(setActivity).catch(() => {});
@@ -107,14 +111,21 @@ export function ProactivePage() {
 
   return (
     <div className="flex h-full w-full gap-2 overflow-hidden">
-      <div className="flex-1 overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] px-8 py-6">
+      <Panel width="wide" className="flex-1">
         <PageHeader
           title="Proactive"
           subtitle="What the hive is deciding to reach out about — and why."
           actions={
-            <Button variant="primary" onClick={findConnections} disabled={orchestrating}>
-              <Sparkles size={14} className={orchestrating ? "animate-pulse" : ""} /> {orchestrating ? "finding connections…" : "Find connections"}
-            </Button>
+            <>
+              {!railOpen && (
+                <Button variant="ghost" onClick={toggleRail} title="Show stream of consciousness">
+                  <Activity size={14} /> Stream
+                </Button>
+              )}
+              <Button variant="primary" onClick={findConnections} disabled={orchestrating}>
+                <Sparkles size={14} className={orchestrating ? "animate-pulse" : ""} /> {orchestrating ? "finding connections…" : "Find connections"}
+              </Button>
+            </>
           }
         />
 
@@ -222,28 +233,56 @@ export function ProactivePage() {
             )}
           </div>
         )}
-      </div>
+      </Panel>
 
-      {/* activity rail — its own elevated panel */}
-      <div className="flex w-[340px] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)]">
-        <div className="flex items-center gap-2 px-5 py-4 text-[13px] font-medium text-fg">
+      {/* activity rail — the hive's live "stream of consciousness". Recessed (sits behind
+          the main canvas), resizable + collapsible. Kept deliberately quiet: restraint is
+          what makes the proactivity read as intentional, not spammy. */}
+      <div
+        className="relative shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
+        style={{ width: railOpen ? railW : 0 }}
+      >
+      <Panel surface="recessed" width="bleed" className="flex h-full flex-col" style={{ width: railW }}>
+        <div className="flex items-center gap-2 border-b border-border px-5 py-4 text-[13px] font-medium text-fg">
           <Activity size={15} className="text-accent" /> Stream of consciousness
+          <button
+            onClick={toggleRail}
+            title="Hide"
+            aria-label="Hide stream"
+            className="ml-auto grid size-6 place-items-center rounded-md text-faint transition hover:bg-fg/[0.06] hover:text-fg"
+          >
+            <PanelRightClose size={15} />
+          </button>
         </div>
-        <div className="flex-1 space-y-1.5 overflow-y-auto px-4 pb-6">
-          {activity.length === 0 && <p className="px-1 text-[12px] text-faint">Quiet mind for now.</p>}
-          {activity.map((a) => (
-            <div key={a.id} className="rounded-lg border border-border bg-card/70 px-3 py-2">
-              <div className="flex items-center gap-2">
-                <span className="size-2 rounded-full" style={{ background: ACTIVITY_COLOR[a.type] ?? "#a89e88" }} />
-                <span className="text-[11px] font-medium text-fg">{THOUGHT[a.type] ?? a.type}</span>
-                <span className="ml-auto text-[10px] text-faint">{new Date(a.ts).toLocaleTimeString()}</span>
-              </div>
-              <div className={cn("mt-1 pl-4 text-[12px]", a.type === "error" ? "text-withhold" : "text-muted")}>
-                {nm(a.memberId)} · {summarize(a.payload)}
-              </div>
-            </div>
-          ))}
+        <div className="flex-1 space-y-1.5 overflow-y-auto px-4 py-4">
+          {activity.length === 0 && (
+            <p className="px-1 pt-2 text-[12px] text-faint">Quiet mind for now — the hive only speaks up when it's worth it.</p>
+          )}
+          <AnimatePresence initial={false}>
+            {activity.map((a) => (
+              <motion.div
+                key={a.id}
+                layout
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                className="rounded-lg border border-border bg-surface px-3 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="size-2 rounded-full" style={{ background: ACTIVITY_COLOR[a.type] ?? "#a89e88" }} />
+                  <span className="text-[11px] font-medium text-fg">{THOUGHT[a.type] ?? a.type}</span>
+                  <span className="ml-auto text-[10px] text-faint">{new Date(a.ts).toLocaleTimeString()}</span>
+                </div>
+                <div className={cn("mt-1 pl-4 text-[12px]", a.type === "error" ? "text-withhold" : "text-muted")}>
+                  {nm(a.memberId)} · {summarize(a.payload)}
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
+      </Panel>
+        {railOpen && <Resizer edge="left" width={railW} min={260} max={520} onChange={setRailW} />}
       </div>
     </div>
   );

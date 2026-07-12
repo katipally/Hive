@@ -172,6 +172,30 @@ export function linkIdentity(
   displayName: string | null,
   beeId: string | null,
 ): ChannelIdentity {
+  const { db } = getDb();
+  // Web is special: a browser id is a random, churning token (new profile / cleared
+  // storage → new id), so treating each as a distinct identity piled up duplicate web
+  // rows per member and let one browser accumulate bindings across members (a leak).
+  // Invariant enforced here: ONE web identity per member, and one browser id ↔ one member.
+  if (channel === "web") {
+    // (1) this browser id is currently bound to a *different* member → this browser is
+    //     now this member; drop the stale binding so identities never cross members.
+    //     Null its references (the old member's turns keep their member_id) rather than
+    //     reassign them, so no history moves between members.
+    const byExt = findIdentity("web", externalId);
+    if (byExt && byExt.memberId !== memberId) mergeIdentityInto(byExt.id, null);
+    // (2) this member already has a web identity → rebind it to the new browser id
+    //     instead of inserting a second row.
+    const row = db
+      .prepare("SELECT * FROM channel_identities WHERE member_id=? AND channel='web'")
+      .get(memberId) as Record<string, unknown> | undefined;
+    if (row) {
+      const ci = rowToIdentity(row);
+      db.prepare("UPDATE channel_identities SET external_id=?, display_name=?, bee_id=?, linked_at=? WHERE id=?")
+        .run(externalId, displayName ?? ci.displayName, beeId ?? ci.beeId, Date.now(), ci.id);
+      return { ...ci, externalId, displayName: displayName ?? ci.displayName, beeId: beeId ?? ci.beeId, linkedAt: Date.now() };
+    }
+  }
   const existing = findIdentity(channel, externalId);
   if (existing) return existing;
   const ci: ChannelIdentity = {
@@ -206,6 +230,40 @@ export function unlinkIdentity(channel: ChannelKind, externalId: string): { memb
   if (m?.preferredChannelIdentityId === ci.id) updateMember(ci.memberId, { preferredChannelIdentityId: null });
   db.prepare("DELETE FROM channel_identities WHERE id=?").run(ci.id);
   return { memberId: ci.memberId, channelIdentityId: ci.id };
+}
+
+// Remove a channel identity safely: repoint everything that FK-references it (turns,
+// nudges, a member's preferred pointer) to `toId` first, then delete. `toId=null` nulls
+// those references instead (used when the identity leaves a member entirely). Without
+// this, deleting a referenced identity fails the FOREIGN KEY constraint.
+function mergeIdentityInto(fromId: string, toId: string | null): void {
+  const { db } = getDb();
+  db.prepare("UPDATE turns SET channel_identity_id=? WHERE channel_identity_id=?").run(toId, fromId);
+  db.prepare("UPDATE nudges SET channel_identity_id=? WHERE channel_identity_id=?").run(toId, fromId);
+  db.prepare("UPDATE members SET preferred_channel_identity_id=? WHERE preferred_channel_identity_id=?").run(toId, fromId);
+  db.prepare("DELETE FROM channel_identities WHERE id=?").run(fromId);
+}
+
+// One-time hygiene at boot: collapse any pre-existing duplicate web identities (created
+// before the one-web-per-member rule) down to the most recent per member, merging their
+// turns/nudges into the keeper so no history is lost. Cheap and idempotent.
+export function dedupeWebIdentities(): number {
+  const { db } = getDb();
+  const rows = db
+    .prepare("SELECT id, member_id FROM channel_identities WHERE channel='web' ORDER BY member_id, linked_at DESC")
+    .all() as { id: string; member_id: string }[];
+  const keeper = new Map<string, string>();
+  const losers: { id: string; keeper: string }[] = [];
+  for (const r of rows) {
+    const k = keeper.get(r.member_id);
+    if (k) losers.push({ id: r.id, keeper: k });
+    else keeper.set(r.member_id, r.id);
+  }
+  if (!losers.length) return 0;
+  db.transaction(() => {
+    for (const l of losers) mergeIdentityInto(l.id, l.keeper);
+  })();
+  return losers.length;
 }
 
 export function listIdentities(memberId: string): ChannelIdentity[] {

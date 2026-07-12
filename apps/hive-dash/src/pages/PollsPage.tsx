@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { MessagesSquare, Plus, X, Check, Clock } from "lucide-react";
 import { api, type PollRow, type MemberRow } from "../api.js";
 import { useDashSocket } from "../useDashSocket.js";
-import { PageHeader, Pill, Button, EmptyState, Input, Avatar } from "../components/ui.js";
+import { PageHeader, Pill, Panel, Button, EmptyState, Input, Avatar } from "../components/ui.js";
 import { stagger } from "../lib/motion.js";
 import { cn } from "../lib/cn.js";
 
@@ -71,7 +71,7 @@ export function PollsPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] px-8 py-6">
+    <Panel width="prose">
       <PageHeader
         title="Polls"
         subtitle="The hive quietly asks the group, then synthesizes what people really think."
@@ -183,6 +183,6 @@ export function PollsPage() {
           })}
         </div>
       )}
-    </div>
+    </Panel>
   );
 }
