@@ -256,6 +256,10 @@ export function App() {
     try {
       const b = (await fetch(`${API_BASE}/bees`).then((r) => r.json())) as BeeInfo[];
       setBees(b);
+      // self-heal a stale selection: if the runtime restarted and beeIds changed, the
+      // cached bee_sel points at a bee that no longer exists (chat would sit "offline").
+      // Snap to a valid profile instead of getting stuck.
+      setBeeId((cur) => (cur && b.some((x) => x.beeId === cur) ? cur : b[0]?.beeId ?? ""));
       setMemberNames(Object.fromEntries(b.map((x) => [x.beeId, localStorage.getItem(memberKey(x.beeId)) ?? ""]).filter(([, v]) => v)));
       return b;
     } catch {
@@ -266,7 +270,16 @@ export function App() {
   }, [toast]);
 
   useEffect(() => {
-    loadBees().then((b) => setBeeId((cur) => (b.some((x) => x.beeId === cur) ? cur : b[0]?.beeId ?? "")));
+    loadBees();
+    // re-sync the profile list when the tab regains focus, so a runtime restart (new
+    // beeIds) is picked up and the selection self-heals without a manual reload.
+    const onFocus = () => void loadBees();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
   }, [loadBees]);
 
   // Refresh which channels this member has linked. Linking happens out-of-band (the member
