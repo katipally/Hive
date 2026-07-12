@@ -88,9 +88,16 @@ export function deleteMember(memberId: string): boolean {
   const exists = db.prepare("SELECT 1 FROM members WHERE id=?").get(memberId);
   if (!exists) return false;
   const mems = "(SELECT id FROM memories WHERE member_id=@m)";
+  const ents = "(SELECT id FROM entities WHERE member_id=@m)";
   db.transaction(() => {
     db.prepare("UPDATE memories SET superseded_by=NULL WHERE member_id=@m").run({ m: memberId });
-    db.prepare(`DELETE FROM edges WHERE source_memory_id IN ${mems} OR invalidated_by_memory_id IN ${mems}`).run({ m: memberId });
+    // Remove every edge touching this member's entities OR memories before deleting those
+    // rows. edges.src_entity_id/dst_entity_id are NOT NULL FKs to entities, so an edge that
+    // references the member's entity (but not one of their memories) would otherwise abort
+    // the whole transaction when we delete entities → the DELETE 500s and the member is stuck.
+    db.prepare(
+      `DELETE FROM edges WHERE src_entity_id IN ${ents} OR dst_entity_id IN ${ents} OR source_memory_id IN ${mems} OR invalidated_by_memory_id IN ${mems}`,
+    ).run({ m: memberId });
     db.prepare("DELETE FROM poll_asks WHERE member_id=@m OR poll_id IN (SELECT id FROM polls WHERE initiator_member_id=@m)").run({ m: memberId });
     db.prepare("DELETE FROM polls WHERE initiator_member_id=@m").run({ m: memberId });
     db.prepare("DELETE FROM disclosures WHERE from_member_id=@m OR to_member_id=@m").run({ m: memberId });
