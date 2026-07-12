@@ -52,12 +52,16 @@ export function displayTurns(beeId: string, sessionId: string): DisplayLine[] {
 
 // The conversation-thread tags this bee has on disk (from display transcripts).
 // Session ids look like `member:<memberId>:<tag>`; we return the trailing tags so
-// the web client can list every thread, not just the ones it created locally.
-export function listSessionTags(beeId: string): string[] {
+// the web client can list every thread, not just the ones it created locally. When a
+// memberId is given the list is scoped to that person — one bee can host several web
+// members, so the unscoped list would leak everyone's threads into each sidebar.
+export function listSessionTags(beeId: string, memberId?: string): string[] {
   try {
     const files = readdirSync(join(dataDir(), "sessions", beeId));
+    const prefix = memberId ? `member:${memberId}:` : null;
     const tags = files
       .filter((f) => f.endsWith(".display.jsonl"))
+      .filter((f) => !prefix || f.startsWith(prefix))
       .map((f) => f.replace(/\.display\.jsonl$/, "").split(":").pop() ?? "")
       .filter(Boolean);
     return [...new Set(tags)];

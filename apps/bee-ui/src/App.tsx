@@ -136,9 +136,10 @@ export function App() {
     setSessions(local);
     const stored = localStorage.getItem(activeKey(beeId));
     setSessionId(stored && local.some((x) => x.id === stored) ? stored : local[0]!.id);
-    // Merge in the bee's server-side threads (seeded/prior sessions this browser
-    // hasn't created locally) so every conversation shows up, not just local ones.
-    fetch(`${API_BASE}/sessions?bee=${beeId}`)
+    // Merge in the bee's server-side threads (prior sessions this browser hasn't
+    // created locally) so every conversation shows up, not just local ones. Scoped by
+    // uid so a shared bee doesn't list other members' threads here.
+    fetch(`${API_BASE}/sessions?bee=${beeId}&uid=${uidFor(beeId)}`)
       .then((r) => r.json())
       .then((server: ChatSession[]) => {
         if (!Array.isArray(server) || !server.length) return;
@@ -157,7 +158,7 @@ export function App() {
   // Re-pull the bee's thread list (used when a proactive reach-out lands in a new thread).
   const refreshSessions = useCallback(() => {
     if (!beeId) return;
-    fetch(`${API_BASE}/sessions?bee=${beeId}`)
+    fetch(`${API_BASE}/sessions?bee=${beeId}&uid=${uidFor(beeId)}`)
       .then((r) => r.json())
       .then((server: ChatSession[]) => {
         if (!Array.isArray(server) || !server.length) return;

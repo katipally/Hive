@@ -165,15 +165,20 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
   });
   // The conversation threads that exist for this bee (so the client lists every
   // seeded/prior session, not just ones created in this browser).
-  app.get("/api/sessions", (c) => {
+  app.get("/api/sessions", async (c) => {
     const beeId = c.req.query("bee") ?? "";
-    if (!bees.get(beeId)) return c.json([]);
+    const bee = bees.get(beeId);
+    if (!bee) return c.json([]);
+    // scope to the member this uid is paired to, so one bee's shared thread list
+    // doesn't leak other members' threads into this person's sidebar.
+    const uid = c.req.query("uid") ?? "";
+    const memberId = uid ? await bee.webMemberId(uid) : null;
     return c.json(
-      listSessionTags(beeId).map((tag) => ({
+      listSessionTags(beeId, memberId ?? undefined).map((tag) => ({
         id: tag,
-        // proactive reach-out threads (created when the bee messages an idle member) get
-        // a friendly name; normal threads prettify their tag.
-        title: tag.startsWith("hive-") ? "From your bee" : tag.replace(/-/g, " ").replace(/\b\w/g, (m) => m.toUpperCase()),
+        // the proactive reach-out thread (where the bee messages an idle member) gets a
+        // friendly name; normal threads prettify their tag. "hive-*" kept for back-compat.
+        title: tag === "hive" || tag.startsWith("hive-") ? "From your bee" : tag.replace(/-/g, " ").replace(/\b\w/g, (m) => m.toUpperCase()),
       })),
     );
   });

@@ -473,16 +473,22 @@ export class Bee {
     return memberId ? `member:${memberId}:${tag}` : null;
   }
 
+  // The member a web uid is paired to — used to scope the thread list to this person
+  // (one bee can host several web members, so the raw on-disk tag list mixes them).
+  async webMemberId(uid: string): Promise<string | null> {
+    return this.memberIdFor("web", uid);
+  }
+
   // Which thread a proactive message should land in: the member's active web thread if
-  // they've interacted recently, otherwise a brand-new thread (so an out-of-the-blue
-  // reach-out starts its own conversation, the way a real "it texted me" would).
-  // Non-web channels have a single thread ("main").
+  // they've interacted recently, otherwise a single, stable "From your bee" thread so
+  // repeated reach-outs accumulate in one place (the way texting a friend works) instead
+  // of spawning a new thread per nudge — which read as spam. Non-web channels use "main".
   private static readonly ACTIVE_SESSION_MS = Number(process.env["HIVE_ACTIVE_SESSION_MS"] ?? 3 * 60_000);
   private targetSessionTag(channel: ChannelKind, memberId: string | null): string {
     if (channel !== "web" || !memberId) return "main";
     const active = this.activeWebSession.get(memberId);
     if (active && Date.now() - active.at < Bee.ACTIVE_SESSION_MS) return active.tag;
-    return `hive-${Date.now().toString(36)}`;
+    return "hive";
   }
 
   private async memberIdFor(channel: ChannelKind, externalId: string): Promise<string | null> {
