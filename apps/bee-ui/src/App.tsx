@@ -258,11 +258,31 @@ export function App() {
     try {
       const b = (await fetch(`${API_BASE}/bees`).then((r) => r.json())) as BeeInfo[];
       setBees(b);
-      // self-heal a stale selection: if the runtime restarted and beeIds changed, the
-      // cached bee_sel points at a bee that no longer exists (chat would sit "offline").
-      // Snap to a valid profile instead of getting stuck.
-      setBeeId((cur) => (cur && b.some((x) => x.beeId === cur) ? cur : b.find((x) => x.primary)?.beeId ?? b[0]?.beeId ?? ""));
-      setMemberNames(Object.fromEntries(b.map((x) => [x.beeId, localStorage.getItem(memberKey(x.beeId)) ?? ""]).filter(([, v]) => v)));
+      // Hydrate the profile list from the SERVER roster (the hive knows every member and the
+      // bee it lives on), so ANY browser shows the same members and their conversations — not
+      // just the ones paired in this browser's storage. Link this browser to each member once;
+      // history is keyed by member, so the real conversation then loads here too.
+      try {
+        const roster = (await fetch(`${API_BASE}/roster`).then((r) => r.json())) as { beeId: string; name: string; code: string }[];
+        for (const r of roster) {
+          if (localStorage.getItem(memberKey(r.beeId))) continue; // already linked in this browser
+          const ok = await fetch(`${API_BASE}/pair`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ bee: r.beeId, uid: uidFor(r.beeId), code: r.code }),
+          }).then((x) => x.ok).catch(() => false);
+          if (ok) {
+            localStorage.setItem(memberKey(r.beeId), r.name);
+            localStorage.setItem(`bee_code_${r.beeId}`, r.code);
+          }
+        }
+      } catch { /* roster unavailable — fall back to locally-paired profiles */ }
+      const names = Object.fromEntries(b.map((x) => [x.beeId, localStorage.getItem(memberKey(x.beeId)) ?? ""]).filter(([, v]) => v));
+      setMemberNames(names);
+      // Prefer a real member profile; fall back to the primary "me". Self-heals a stale
+      // selection when the runtime restarts and beeIds change.
+      const firstNamed = b.find((x) => names[x.beeId]);
+      setBeeId((cur) => (cur && b.some((x) => x.beeId === cur) ? cur : firstNamed?.beeId ?? b.find((x) => x.primary)?.beeId ?? b[0]?.beeId ?? ""));
       return b;
     } catch {
       setBees([]);
@@ -482,7 +502,9 @@ export function App() {
                 {bees
                   .filter((b) => b.primary || memberNames[b.beeId] || b.beeId === beeId)
                   .map((b) => (
-                    <option key={b.beeId} value={b.beeId}>{label(b)}</option>
+                    <option key={b.beeId} value={b.beeId}>
+                      {b.primary && !memberNames[b.beeId] ? "New profile" : label(b)}
+                    </option>
                   ))}
               </select>
               <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-faint">
@@ -556,7 +578,7 @@ export function App() {
             </button>
           </div>
           <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
-            {sessions.map((s) => {
+            {(pairedName ? sessions : []).map((s) => {
               const active = s.id === sessionId;
               if (renamingId === s.id) {
                 return (

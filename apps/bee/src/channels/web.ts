@@ -117,6 +117,24 @@ export function startWebServer(cfg: BeeConfig, bees: Map<string, Bee>): void {
       .catch(() => ({ beeId: null }));
     return c.json(info as { beeId: string | null });
   });
+  // The server-side roster of members + the bee each is hosted on. The web UI hydrates its
+  // profile list from this (not browser storage), so every browser shows the same members
+  // and their conversations. Only members already paired on a bee that exists here are listed.
+  app.get("/api/roster", async (c) => {
+    const members = (await fetch(`${cfg.hiveHttpUrl}/api/members`).then((x) => x.json()).catch(() => [])) as {
+      name: string;
+      code: string;
+      identities: { channel: string; beeId: string | null }[];
+    }[];
+    const have = new Set([...bees.keys()]);
+    const roster = members
+      .map((m) => {
+        const web = (m.identities ?? []).find((i) => i.channel === "web" && i.beeId);
+        return web?.beeId && have.has(web.beeId) ? { beeId: web.beeId, name: m.name, code: m.code } : null;
+      })
+      .filter((r): r is { beeId: string; name: string; code: string } => r !== null);
+    return c.json(roster);
+  });
   app.post("/api/bees", async (c) => {
     const { name } = await c.req.json<{ name?: string }>().catch(() => ({ name: undefined }));
     const nm = name?.trim() || `bee-${bees.size + 1}`;
