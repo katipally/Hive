@@ -500,7 +500,9 @@ export function App() {
                 className="w-full min-w-0 cursor-pointer appearance-none rounded-lg border border-border bg-surface py-1.5 pl-2.5 pr-7 text-[13px] text-fg outline-none transition-colors hover:border-border-heavy focus:border-accent/50"
               >
                 {bees
-                  .filter((b) => b.primary || memberNames[b.beeId] || b.beeId === beeId)
+                  // named profiles always; the placeholder primary "New profile" only when
+                  // there are zero real profiles yet (otherwise use "+" to add another).
+                  .filter((b) => memberNames[b.beeId] || (b.primary && !bees.some((x) => memberNames[x.beeId])))
                   .map((b) => (
                     <option key={b.beeId} value={b.beeId}>
                       {b.primary && !memberNames[b.beeId] ? "New profile" : label(b)}
