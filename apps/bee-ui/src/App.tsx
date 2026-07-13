@@ -636,7 +636,7 @@ export function App() {
           <Avatar name={pairedName ?? beeName} size={32} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="truncate text-[14px] font-semibold tracking-tight text-fg">{pairedName ?? beeName}</span>
+              <span className="truncate text-[14px] font-semibold tracking-tight text-fg">{pairedName ?? "No profile"}</span>
               {!pairedName && (
                 <button
                   onClick={() => setChannelsOpen(true)}
@@ -658,13 +658,29 @@ export function App() {
         <div ref={logRef} role="log" aria-live="polite" className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-2xl space-y-3 px-5 py-5">
             {chat.msgs.length === 0 && (
-              <div className="flex h-[60vh] flex-col items-center justify-center gap-3 text-center">
-                <BeeMark size={34} />
-                <div className="text-[18px] font-semibold tracking-tight">Hi, I'm your bee</div>
-                <p className="max-w-xs text-[13px] text-muted">
-                  Tell me what's going on in your life. I remember, and I look out for you and your friends.
-                </p>
-              </div>
+              pairedName ? (
+                <div className="flex h-[60vh] flex-col items-center justify-center gap-3 text-center">
+                  <BeeMark size={34} />
+                  <div className="text-[18px] font-semibold tracking-tight">Hi, I'm your bee</div>
+                  <p className="max-w-xs text-[13px] text-muted">
+                    Tell me what's going on in your life. I remember, and I look out for you and your friends.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex h-[60vh] flex-col items-center justify-center gap-3 text-center">
+                  <BeeMark size={34} />
+                  <div className="text-[18px] font-semibold tracking-tight">Create a profile to start</div>
+                  <p className="max-w-xs text-[13px] text-muted">
+                    Paste an invite code (BEE-XXXX) from the operator to link a member and start the conversation.
+                  </p>
+                  <button
+                    onClick={() => setAddingProfile(true)}
+                    className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-[13px] font-medium text-bg transition hover:brightness-105"
+                  >
+                    <Plus size={15} /> Add a profile
+                  </button>
+                </div>
+              )
             )}
 
             <AnimatePresence initial={false}>
@@ -708,6 +724,7 @@ export function App() {
         </div>
 
         <div className="px-4 pb-4 pt-2">
+          {pairedName ? (
           <div className="relative mx-auto w-full max-w-2xl rounded-[20px] border border-border bg-surface shadow-[var(--shadow-input)] transition-[box-shadow,border-color] focus-within:border-accent/40 focus-within:shadow-[var(--shadow-input-focus)]">
             {cmdMatches.length > 0 && (
               <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-2xl border border-border bg-surface py-1 shadow-[var(--shadow-input)]">
@@ -758,6 +775,17 @@ export function App() {
               </button>
             </div>
           </div>
+          ) : (
+            <div className="mx-auto flex w-full max-w-2xl items-center justify-center gap-2.5 rounded-[20px] border border-dashed border-border bg-surface/40 px-4 py-3.5 text-[13px] text-muted">
+              <span>No profile linked here yet.</span>
+              <button
+                onClick={() => setAddingProfile(true)}
+                className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-bg transition hover:brightness-105"
+              >
+                <Plus size={14} /> Add a profile
+              </button>
+            </div>
+          )}
         </div>
 
         <VoiceMode
